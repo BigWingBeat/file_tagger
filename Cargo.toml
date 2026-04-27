@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-slint = { version = "1.16", default-features = false, features = ["compat-1-2", "std", "accessibility", "backend-winit-wayland", "renderer-femtovg"] }
-
-[build-dependencies]
-slint-build = "1.16"
+miette = "7.6"
+sled = "0.34"
+xilem = "0.4"
