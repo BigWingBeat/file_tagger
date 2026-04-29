@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 miette = "7.6"
 sled = "0.34"
-xilem = "0.4"
+xilem = { git = "https://github.com/linebender/xilem", branch = "main" }

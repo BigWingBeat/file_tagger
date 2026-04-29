@@ -1,17 +1,17 @@
 use std::path::PathBuf;
 
 use xilem::{
-    EventLoop, FontWeight, TextAlign, WidgetView, WindowOptions, Xilem,
+    EventLoop, FontWeight, WidgetView, WindowOptions, Xilem,
     masonry::{
-        peniko::color::{AlphaColor, HueDirection},
-        properties::types::Length,
-        theme::{ZYNC_500, ZYNC_700, ZYNC_800, ZYNC_900},
+        layout::{Dim, Length},
+        properties::Dimensions,
+        theme::{ZYNC_600, ZYNC_800, ZYNC_900},
     },
     palette::css::TRANSPARENT,
-    style::Style,
+    style::{Padding, Style},
     view::{
-        Axis, CrossAxisAlignment, MainAxisAlignment, flex, flex_col, flex_row, label, portal,
-        prose, sized_box, text_button, text_input, transformed,
+        CrossAxisAlignment, FlexExt, MainAxisAlignment, button, flex_col, flex_row, label, portal,
+        text_button, text_input,
     },
     winit::error::EventLoopError,
 };
@@ -55,64 +55,85 @@ impl Default for AppState {
 }
 
 fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    flex_col(
-        sized_box(
-            flex_col((
-                sized_box(
-                    label(state.active_folder.clone())
-                        .weight(FontWeight::BOLD)
-                        .text_size(20.0),
-                )
-                .expand_width(),
-                flex_row((
-                    text_input(state.search_text.clone(), |state: &mut AppState, text| {
-                        state.search_text = text
+    // Hoist the `text_input` styling to the enclosing `flex_row` so the button looks like it's inside the text box
+    let search_bar = flex_row((
+        text_input(state.search_text.clone(), |state: &mut AppState, text| {
+            state.search_text = text
+        })
+        .placeholder("Search files by tag")
+        .border_width(0.0)
+        .background(TRANSPARENT)
+        .flex(1.0),
+        text_button("🔍", |_| {})
+            .corner_radius(f64::INFINITY) // circle
+            .border_width(0.0)
+            .padding(Padding {
+                top: 5.0,
+                ..Padding::horizontal(8.5)
+            }),
+    ))
+    .gap(Length::const_px(1.0))
+    .padding(Padding {
+        right: 12.0,
+        ..Padding::vertical(2.0)
+    })
+    .border(ZYNC_600, 1.0)
+    .corner_radius(4.0);
+
+    // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
+    // Instead, they are always as wide as possible
+    let recent_list = flex_col((
+        label("Open Recent")
+            .weight(FontWeight::BOLD)
+            .text_size(20.0),
+        portal(
+            flex_col(
+                state
+                    .recent_folders
+                    .iter()
+                    .map(|folder| {
+                        button(
+                            flex_col((
+                                label(folder.name.clone()).weight(FontWeight::BOLD),
+                                label(folder.path.to_string_lossy()),
+                            ))
+                            .cross_axis_alignment(CrossAxisAlignment::Start)
+                            .gap(Length::const_px(0.0)),
+                            |_| {},
+                        )
+                        .border_width(0.0)
+                        // .dims(Dimensions::width(Dim::Stretch))
                     })
-                    .placeholder("Search posts by tag"),
-                    transformed(
-                        text_button("🔍", |_| {})
-                            .corner_radius(25.0)
-                            .border_width(0.0),
-                    )
-                    .translate((-80.0, 0.0)),
-                )),
-                flex_row((
-                    flex_col((
-                        label("Open Recent")
-                            .weight(FontWeight::BOLD)
-                            .text_size(20.0),
-                        portal(
-                            flex_col(
-                                state
-                                    .recent_folders
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(i, folder)| {
-                                        flex_col((
-                                            label(folder.name.clone()).weight(FontWeight::BOLD),
-                                            label(folder.path.to_string_lossy()),
-                                        ))
-                                        .cross_axis_alignment(CrossAxisAlignment::Start)
-                                    })
-                                    .collect::<Vec<_>>(),
-                            )
-                            .cross_axis_alignment(CrossAxisAlignment::Start),
-                        ),
-                    ))
-                    .cross_axis_alignment(CrossAxisAlignment::Start),
-                    flex_col((
-                        text_button("Open Database From Folder", |data: &mut AppState| {}),
-                        text_button("Create New Database", |data: &mut AppState| {}),
-                    ))
-                    .cross_axis_alignment(CrossAxisAlignment::Fill),
+                    .collect::<Vec<_>>(),
+            )
+            .gap(Length::const_px(1.0))
+            .dims(Dimensions::width(Dim::Stretch)),
+        ),
+    ))
+    .flex(0.5);
+
+    // Center the inner `flex_col`
+    flex_col(
+        // Centered and fixed size
+        flex_col((
+            label(state.active_folder.clone())
+                .weight(FontWeight::BOLD)
+                .text_size(20.0)
+                .dims(Dimensions::width(Dim::Stretch)),
+            search_bar,
+            flex_row((
+                recent_list,
+                flex_col((
+                    text_button("Open Database From Folder", |_: &mut AppState| {}),
+                    text_button("Create New Database", |_: &mut AppState| {}),
                 ))
-                .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
-                .must_fill_major_axis(true),
-            ))
-            .main_axis_alignment(MainAxisAlignment::Center),
-        )
-        .width(Length::const_px(600.0))
-        .height(Length::const_px(200.0))
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .flex(0.5),
+            )),
+        ))
+        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .dims((Length::const_px(1000.0), Length::const_px(375.0)))
         .padding(10.0)
         .background_color(ZYNC_800),
     )
