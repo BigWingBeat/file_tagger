@@ -4,7 +4,7 @@ use xilem::{
     FontWeight, WidgetView,
     masonry::{
         layout::{Dim, Length},
-        properties::{Dimensions, LineBreaking},
+        properties::{Dimensions, Gap, LineBreaking},
         theme::{ZYNC_600, ZYNC_800, ZYNC_900},
     },
     palette::css::TRANSPARENT,
@@ -140,11 +140,32 @@ fn recent_list_portal(state: &mut LauncherState) -> impl WidgetView<LauncherStat
 fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
     // These buttons should be the same width
     flex_col((
-        text_button("Open Folder As Database", |_: &mut LauncherState| {}),
-        text_button("Create New Database", |_: &mut LauncherState| {}),
+        flex_row((
+            flex_col((
+                label("Open Folder As Database").weight(FontWeight::BOLD),
+                label("Create or open a database in a folder"),
+            ))
+            .cross_axis_alignment(CrossAxisAlignment::End)
+            .gap(Gap::ZERO)
+            .flex(0.5),
+            text_button("Open", |_: &mut LauncherState| {})
+                .dims(Dimensions::height(Dim::Stretch))
+                .flex(0.4),
+        )),
+        flex_row((
+            flex_col((
+                label("Create New Database").weight(FontWeight::BOLD),
+                label("Create a new folder and database"),
+            ))
+            .cross_axis_alignment(CrossAxisAlignment::End)
+            .gap(Gap::ZERO)
+            .flex(0.5),
+            text_button("Create", |_: &mut LauncherState| {})
+                .dims(Dimensions::height(Dim::Stretch))
+                .flex(0.4),
+        )),
     ))
-    .main_axis_alignment(MainAxisAlignment::Center)
-    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+    .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
 }
 
 pub fn launcher_view(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
