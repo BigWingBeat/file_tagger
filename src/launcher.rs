@@ -5,15 +5,15 @@ use xilem::{
     masonry::{
         layout::{Dim, Length},
         properties::{Dimensions, Gap, LineBreaking},
-        theme::{ZYNC_600, ZYNC_800, ZYNC_900},
     },
-    palette::css::TRANSPARENT,
-    style::{Padding, Style},
+    style::Style,
     view::{
         CrossAxisAlignment, FlexExt, MainAxisAlignment, button, flex_col, flex_item, flex_row,
-        label, portal, text_button, text_input,
+        label, portal, text_button,
     },
 };
+
+use crate::view::centered_box;
 
 struct RecentFolder {
     name: String,
@@ -21,16 +21,12 @@ struct RecentFolder {
 }
 
 pub struct LauncherState {
-    active_folder: String,
-    search_text: String,
     recent_folders: Vec<RecentFolder>,
 }
 
 impl Default for LauncherState {
     fn default() -> Self {
         Self {
-            active_folder: "Folder".to_owned(),
-            search_text: String::new(),
             recent_folders: vec![
                 RecentFolder {
                     name: "Pictures".into(),
@@ -55,44 +51,6 @@ impl Default for LauncherState {
             ],
         }
     }
-}
-
-fn active_folder_name(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
-    label(state.active_folder.clone())
-        .weight(FontWeight::BOLD)
-        .text_size(20.0)
-        .dims(Dimensions::width(Dim::Stretch))
-}
-
-fn search_bar(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
-    // Hoist the `text_input` styling to the enclosing `flex_row` so the button looks like it's inside the text box
-    flex_row((
-        text_input(
-            state.search_text.clone(),
-            |state: &mut LauncherState, text| state.search_text = text,
-        )
-        .placeholder("Search files by tag")
-        .border_width(0.0)
-        .background(TRANSPARENT)
-        .flex(1.0),
-        text_button("🔍", |_| {})
-            .corner_radius(f64::INFINITY) // circle
-            .border_width(0.0)
-            // Manually tuned padding to make it look centered and circular
-            .padding(Padding {
-                top: 5.0,
-                ..Padding::horizontal(8.5)
-            }),
-    ))
-    .gap(Length::const_px(1.0))
-    // The text input has its own padding, this is just for the button
-    .padding(Padding {
-        right: 12.0,
-        ..Padding::vertical(2.0)
-    })
-    // Border and corner radius the same as the text input
-    .border(ZYNC_600, 1.0)
-    .corner_radius(4.0)
 }
 
 fn recent_list(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
@@ -168,23 +126,13 @@ fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherSta
     .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
 }
 
+pub fn launcher(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
+    flex_row((
+        flex_item(recent_list_portal(state), 0.5),
+        flex_item(open_create_buttons(state), 0.5),
+    ))
+}
+
 pub fn launcher_view(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
-    // Center the inner `flex_col`
-    flex_col(
-        // Centered and fixed size
-        flex_col((
-            active_folder_name(state),
-            search_bar(state),
-            flex_row((
-                flex_item(recent_list_portal(state), 0.5),
-                flex_item(open_create_buttons(state), 0.5),
-            )),
-        ))
-        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .dims((Length::const_px(1000.0), Length::const_px(375.0)))
-        .padding(10.0)
-        .background_color(ZYNC_800),
-    )
-    .main_axis_alignment(MainAxisAlignment::Center)
-    .background_color(ZYNC_900)
+    centered_box(launcher(state))
 }
