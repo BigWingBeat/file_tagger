@@ -106,9 +106,19 @@ fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherSta
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(0.5),
-            text_button("Open", |_: &mut LauncherState| {})
-                .dims(Dimensions::height(Dim::Stretch))
-                .flex(0.4),
+            text_button("Open", |state: &mut LauncherState| {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("Open Database As Folder")
+                    .pick_folder()
+                {
+                    state.recent_folders.push(RecentFolder {
+                        name: path.file_name().unwrap().to_string_lossy().into_owned(),
+                        path,
+                    });
+                }
+            })
+            .dims(Dimensions::height(Dim::Stretch))
+            .flex(0.4),
         )),
         flex_row((
             flex_col((
@@ -118,9 +128,19 @@ fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherSta
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(0.5),
-            text_button("Create", |_: &mut LauncherState| {})
-                .dims(Dimensions::height(Dim::Stretch))
-                .flex(0.4),
+            text_button("Create", |state: &mut LauncherState| {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("Create New Folder And Database")
+                    .save_file()
+                {
+                    state.recent_folders.push(RecentFolder {
+                        name: path.file_name().unwrap().to_string_lossy().into_owned(),
+                        path,
+                    });
+                }
+            })
+            .dims(Dimensions::height(Dim::Stretch))
+            .flex(0.4),
         )),
     ))
     .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
