@@ -4,7 +4,7 @@ use xilem::{
     FontWeight, WidgetView,
     masonry::{
         layout::{Dim, Length},
-        properties::Dimensions,
+        properties::{Dimensions, LineBreaking},
         theme::{ZYNC_600, ZYNC_800, ZYNC_900},
     },
     palette::css::TRANSPARENT,
@@ -47,6 +47,10 @@ impl Default for LauncherState {
                 RecentFolder {
                     name: "Science Papers".into(),
                     path: "~/Documents/Science Papers".into(),
+                },
+                RecentFolder {
+                    name: "Testing extremely long path and name".into(),
+                    path: "/home/bigwingbeat/Documents/game assets/rain world/Assets/Resources/atlases/".into(),
                 },
             ],
         }
@@ -102,8 +106,11 @@ fn recent_list(state: &mut LauncherState) -> impl WidgetView<LauncherState> + us
                 // TODO: highlight on hover
                 button(
                     flex_col((
-                        label(folder.name.clone()).weight(FontWeight::BOLD),
-                        label(folder.path.to_string_lossy()),
+                        label(folder.name.clone())
+                            .weight(FontWeight::BOLD)
+                            .line_break_mode(LineBreaking::WordWrap),
+                        label(folder.path.to_string_lossy())
+                            .line_break_mode(LineBreaking::WordWrap),
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(Length::const_px(0.0)),
