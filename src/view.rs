@@ -38,7 +38,7 @@ where
 }
 
 pub fn launcher_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    centered_box(lens(launcher, |state: &mut AppState| &mut state.launcher))
+    centered_box(launcher(state))
 }
 
 pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
@@ -47,6 +47,6 @@ pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use
             &mut state.search_menu
         }),
         lens(search_bar, |state: &mut AppState| &mut state.search_menu),
-        lens(launcher, |state: &mut AppState| &mut state.launcher),
+        launcher(state),
     ))
 }

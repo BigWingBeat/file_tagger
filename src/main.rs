@@ -32,6 +32,13 @@ struct AppState {
     launcher: LauncherState,
 }
 
+impl AppState {
+    fn search_menu(&mut self, active_folder: String) {
+        self.active_view = ActiveView::SearchMenu;
+        self.search_menu.active_folder = active_folder;
+    }
+}
+
 fn app_logic(state: &mut AppState) -> Box<AnyWidgetView<AppState>> {
     match state.active_view {
         ActiveView::Launcher => launcher_view(state).boxed(),

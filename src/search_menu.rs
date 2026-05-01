@@ -11,7 +11,7 @@ use xilem::{
 };
 
 pub struct SearchMenuState {
-    active_folder: String,
+    pub active_folder: String,
     search_text: String,
 }
 

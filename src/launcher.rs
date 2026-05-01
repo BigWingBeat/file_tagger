@@ -13,6 +13,8 @@ use xilem::{
     },
 };
 
+use crate::AppState;
+
 struct RecentFolder {
     name: String,
     path: PathBuf,
@@ -51,18 +53,21 @@ impl Default for LauncherState {
     }
 }
 
-fn recent_list(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
+fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
     // Instead, they are always as wide as possible
     flex_col(
         state
+            .launcher
             .recent_folders
             .iter()
+            .rev()
             .map(|folder| {
+                let name = folder.name.clone();
                 // TODO: highlight on hover
                 button(
                     flex_col((
-                        label(folder.name.clone())
+                        label(&*name)
                             .weight(FontWeight::BOLD)
                             .line_break_mode(LineBreaking::WordWrap),
                         label(folder.path.to_string_lossy())
@@ -70,7 +75,9 @@ fn recent_list(state: &mut LauncherState) -> impl WidgetView<LauncherState> + us
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(Length::const_px(0.0)),
-                    |_| {},
+                    move |state: &mut AppState| {
+                        state.search_menu(name.clone());
+                    },
                 )
                 .border_width(0.0)
             })
@@ -80,7 +87,7 @@ fn recent_list(state: &mut LauncherState) -> impl WidgetView<LauncherState> + us
     .dims(Dimensions::width(Dim::Stretch))
 }
 
-fn recent_list_portal(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
+fn recent_list_portal(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_col((
         label("Open Recent")
             .weight(FontWeight::BOLD)
@@ -93,7 +100,7 @@ fn recent_list_portal(state: &mut LauncherState) -> impl WidgetView<LauncherStat
 /// that already exists there.
 /// The "create" button selects a folder, and creates a *new* empty folder there, with a specified name, as well as
 /// creating a new database in the new folder.
-fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
+fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     // These buttons should be the same width
     flex_col((
         flex_row((
@@ -104,15 +111,17 @@ fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherSta
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(0.5),
-            text_button("Open", |state: &mut LauncherState| {
+            text_button("Open", |state: &mut AppState| {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_title("Open Database As Folder")
                     .pick_folder()
                 {
-                    state.recent_folders.push(RecentFolder {
-                        name: path.file_name().unwrap().to_string_lossy().into_owned(),
-                        path,
-                    });
+                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                    state.search_menu(name.clone());
+                    state
+                        .launcher
+                        .recent_folders
+                        .push(RecentFolder { name, path });
                 }
             })
             .dims(Dimensions::height(Dim::Stretch))
@@ -126,15 +135,17 @@ fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherSta
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(0.5),
-            text_button("Create", |state: &mut LauncherState| {
+            text_button("Create", |state: &mut AppState| {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_title("Create New Folder And Database")
                     .save_file()
                 {
-                    state.recent_folders.push(RecentFolder {
-                        name: path.file_name().unwrap().to_string_lossy().into_owned(),
-                        path,
-                    });
+                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                    state.search_menu(name.clone());
+                    state
+                        .launcher
+                        .recent_folders
+                        .push(RecentFolder { name, path });
                 }
             })
             .dims(Dimensions::height(Dim::Stretch))
@@ -144,7 +155,7 @@ fn open_create_buttons(state: &mut LauncherState) -> impl WidgetView<LauncherSta
     .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
 }
 
-pub fn launcher(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
+pub fn launcher(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_row((
         flex_item(recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),
