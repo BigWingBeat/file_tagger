@@ -13,8 +13,6 @@ use xilem::{
     },
 };
 
-use crate::view::centered_box;
-
 struct RecentFolder {
     name: String,
     path: PathBuf,
@@ -151,8 +149,4 @@ pub fn launcher(state: &mut LauncherState) -> impl WidgetView<LauncherState> + u
         flex_item(recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),
     ))
-}
-
-pub fn launcher_view(state: &mut LauncherState) -> impl WidgetView<LauncherState> + use<> {
-    centered_box(launcher(state))
 }

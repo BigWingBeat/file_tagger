@@ -1,9 +1,13 @@
 use xilem::{
-    AnyWidgetView, EventLoop, WidgetView, WindowOptions, Xilem, core::lens, view::flex_col,
+    AnyWidgetView, EventLoop, WidgetView, WindowOptions, Xilem, view::flex_col,
     winit::error::EventLoopError,
 };
 
-use crate::{launcher::launcher_view, search_menu::SearchMenuState};
+use crate::{
+    launcher::LauncherState,
+    search_menu::SearchMenuState,
+    view::{launcher_view, search_menu_view},
+};
 
 mod launcher;
 mod search_menu;
@@ -25,21 +29,14 @@ enum ActiveView {
 struct AppState {
     active_view: ActiveView,
     search_menu: SearchMenuState,
+    launcher: LauncherState,
 }
 
 fn app_logic(state: &mut AppState) -> Box<AnyWidgetView<AppState>> {
-    use crate::search_menu::search_menu_view;
-    use ActiveView::*;
     match state.active_view {
-        Launcher => lens(launcher_view, |state: &mut AppState| {
-            &mut state.search_menu.launcher_state
-        })
-        .boxed(),
-        SearchMenu => lens(search_menu_view, |state: &mut AppState| {
-            &mut state.search_menu
-        })
-        .boxed(),
-        SearchResults => flex_col(()).boxed(),
+        ActiveView::Launcher => launcher_view(state).boxed(),
+        ActiveView::SearchMenu => search_menu_view(state).boxed(),
+        ActiveView::SearchResults => flex_col(()).boxed(),
     }
 }
 
