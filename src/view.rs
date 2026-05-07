@@ -8,13 +8,15 @@ use xilem::{
         theme::{ZYNC_800, ZYNC_900},
     },
     style::Style,
-    view::{Flex, FlexSequence, MainAxisAlignment, flex_col},
+    view::{Flex, FlexSequence, FlexSpacer, MainAxisAlignment, flex_col},
 };
 
 use crate::{
     AppState,
+    edit::edit,
     launcher::launcher,
-    search_menu::{active_folder_name, search_bar},
+    search_menu::{active_folder_name, import_button, search_bar},
+    search_results::search_results,
 };
 
 pub fn centered_box<Seq, State>(seq: Seq) -> impl WidgetView<State> + use<Seq, State>
@@ -38,7 +40,7 @@ where
 }
 
 pub fn launcher_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    centered_box(launcher(state))
+    centered_box((FlexSpacer::Flex(1.0), launcher(state)))
 }
 
 pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
@@ -46,7 +48,26 @@ pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use
         lens(active_folder_name, |state: &mut AppState| {
             &mut state.search_menu
         }),
-        lens(search_bar, |state: &mut AppState| &mut state.search_menu),
+        search_bar(state),
+        import_button(state),
+        FlexSpacer::Flex(1.0),
         launcher(state),
     ))
+}
+
+pub fn search_results_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+    centered_box((
+        lens(active_folder_name, |state: &mut AppState| {
+            &mut state.search_menu
+        }),
+        search_bar(state),
+        import_button(state),
+        lens(search_results, |state: &mut AppState| {
+            &mut state.search_results
+        }),
+    ))
+}
+
+pub fn edit_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+    edit(state)
 }

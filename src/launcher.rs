@@ -24,6 +24,12 @@ pub struct LauncherState {
     recent_folders: Vec<RecentFolder>,
 }
 
+impl LauncherState {
+    pub fn push_recent_folder(&mut self, name: String, path: PathBuf) {
+        self.recent_folders.push(RecentFolder { name, path });
+    }
+}
+
 impl Default for LauncherState {
     fn default() -> Self {
         Self {
@@ -63,20 +69,19 @@ fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
             .iter()
             .rev()
             .map(|folder| {
-                let name = folder.name.clone();
+                let path = folder.path.clone();
                 // TODO: highlight on hover
                 button(
                     flex_col((
-                        label(&*name)
+                        label(folder.name.clone())
                             .weight(FontWeight::BOLD)
                             .line_break_mode(LineBreaking::WordWrap),
-                        label(folder.path.to_string_lossy())
-                            .line_break_mode(LineBreaking::WordWrap),
+                        label(path.to_string_lossy()).line_break_mode(LineBreaking::WordWrap),
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(Length::const_px(0.0)),
                     move |state: &mut AppState| {
-                        state.search_menu(name.clone());
+                        state.open_recent(path.clone());
                     },
                 )
                 .border_width(0.0)
@@ -92,7 +97,7 @@ fn recent_list_portal(state: &mut AppState) -> impl WidgetView<AppState> + use<>
         label("Open Recent")
             .weight(FontWeight::BOLD)
             .text_size(20.0),
-        portal(recent_list(state)),
+        portal(recent_list(state)).constrain_horizontal(true),
     ))
 }
 
@@ -106,23 +111,13 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
         flex_row((
             flex_col((
                 label("Open Folder As Database").weight(FontWeight::BOLD),
-                label("Create or open a database in a folder"),
+                label("Open or create a database in a folder"),
             ))
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(0.5),
             text_button("Open", |state: &mut AppState| {
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Open Database As Folder")
-                    .pick_folder()
-                {
-                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
-                    state.search_menu(name.clone());
-                    state
-                        .launcher
-                        .recent_folders
-                        .push(RecentFolder { name, path });
-                }
+                state.open_database_in_folder();
             })
             .dims(Dimensions::height(Dim::Stretch))
             .flex(0.4),
@@ -130,23 +125,13 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
         flex_row((
             flex_col((
                 label("Create New Database").weight(FontWeight::BOLD),
-                label("Create a new folder and database"),
+                label("Create a new folder with a new database"),
             ))
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(0.5),
             text_button("Create", |state: &mut AppState| {
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Create New Folder And Database")
-                    .save_file()
-                {
-                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
-                    state.search_menu(name.clone());
-                    state
-                        .launcher
-                        .recent_folders
-                        .push(RecentFolder { name, path });
-                }
+                state.create_folder_with_database();
             })
             .dims(Dimensions::height(Dim::Stretch))
             .flex(0.4),

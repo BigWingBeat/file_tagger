@@ -1,0 +1,52 @@
+use xilem::{
+    FontWeight, WidgetView,
+    masonry::theme::ZYNC_600,
+    style::Style,
+    view::{FlexSpacer, flex_col, flex_row, label, text_button},
+};
+
+use crate::{AppState, database::Entry};
+
+#[derive(Default)]
+pub struct EditState {
+    pub entries: Vec<Entry>,
+}
+
+pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+    flex_col((
+        // Display thumbnails of entries being edited, entries can be selected
+        flex_row(
+            state
+                .edit
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(i, entry)| label(format!("entry {i}")))
+                .collect::<Vec<_>>(),
+        )
+        .border(ZYNC_600, 1.0)
+        .corner_radius(4.0),
+        // Ways of adding more entries to be edited
+        flex_row((
+            FlexSpacer::Flex(1.0),
+            // New empty entry, prefilled with tag metatags
+            text_button("＋ Create Tag", |state: &mut AppState| {
+                let entry = state.database.generate_entry();
+                state.edit.entries.push(entry);
+            }),
+            // Open search menu to select existing entries
+            text_button("＋ Add Entries", |_| {}),
+            // Open file picker, prefill with appropriate tags from file metadata
+            text_button("＋ Import Files", |_| {}),
+        )),
+        label("Tags").weight(FontWeight::BOLD).text_size(20.0),
+        // Intersection of tags applied to all selected entries
+        flex_col(FlexSpacer::Flex(1.0))
+            .border(ZYNC_600, 1.0)
+            .corner_radius(4.0),
+        flex_row((
+            FlexSpacer::Flex(1.0),
+            text_button("Save Changes", |state: &mut AppState| {}),
+        )),
+    ))
+}

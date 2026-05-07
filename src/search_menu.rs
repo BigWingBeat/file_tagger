@@ -10,6 +10,8 @@ use xilem::{
     view::{FlexExt, flex_row, label, text_button, text_input},
 };
 
+use crate::AppState;
+
 pub struct SearchMenuState {
     pub active_folder: String,
     search_text: String,
@@ -31,18 +33,19 @@ pub fn active_folder_name(state: &mut SearchMenuState) -> impl WidgetView<Search
         .dims(Dimensions::width(Dim::Stretch))
 }
 
-pub fn search_bar(state: &mut SearchMenuState) -> impl WidgetView<SearchMenuState> + use<> {
+pub fn search_bar(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     // Hoist the `text_input` styling to the enclosing `flex_row` so the button looks like it's inside the text box
     flex_row((
         text_input(
-            state.search_text.clone(),
-            |state: &mut SearchMenuState, text| state.search_text = text,
+            state.search_menu.search_text.clone(),
+            |state: &mut AppState, text| state.search_menu.search_text = text,
         )
+        .on_enter(|state: &mut AppState, _| state.search_results())
         .placeholder("Search files by tag")
         .border_width(0.0)
         .background(TRANSPARENT)
         .flex(1.0),
-        text_button("🔍", |_| {})
+        text_button("🔍", |state: &mut AppState| state.search_results())
             .corner_radius(f64::INFINITY) // circle
             .border_width(0.0)
             // Manually tuned padding to make it look centered and circular
@@ -60,4 +63,8 @@ pub fn search_bar(state: &mut SearchMenuState) -> impl WidgetView<SearchMenuStat
     // Border and corner radius the same as the text input
     .border(ZYNC_600, 1.0)
     .corner_radius(4.0)
+}
+
+pub fn import_button(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+    text_button("Import Files", |state: &mut AppState| state.import_files())
 }

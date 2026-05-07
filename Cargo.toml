@@ -5,7 +5,16 @@ edition = "2024"
 
 [dependencies]
 dirs = "6.0"
+fjall = { version = "3.1", optional = true }
 miette = "7.6"
 rfd = "0.17"
-sled = "0.34"
+scru64 = { version = "2.0", default-features = false, features = ["std"] }
+sled = { version = "0.34", features = ["compression"], optional = true }
+smallvec = { version = "1.15", features = ["union", "const_generics", "const_new"] }
+thiserror = "2.0"
 xilem = { git = "https://github.com/linebender/xilem", branch = "main" }
+
+[features]
+default = ["backend_fjall"]
+backend_fjall = ["dep:fjall"]
+backend_sled = ["dep:sled"]
