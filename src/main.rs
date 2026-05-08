@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
+use miette::{IntoDiagnostic, MietteHandlerOpts};
 use xilem::{
     AnyWidgetView, EventLoop, FontWeight, WidgetView, WindowOptions, Xilem,
-    masonry::theme::ZYNC_900,
+    masonry::{parley::GenericFamily, theme::ZYNC_900},
     palette::css::RED,
     style::Style,
     view::{flex_col, label},
@@ -132,8 +133,10 @@ struct FuckedState(miette::Report);
 impl FuckedState {
     fn app_logic(&mut self) -> impl WidgetView<Self> + use<> {
         flex_col(
-            label(format!("{}", self.0))
-                .weight(FontWeight::EXTRA_BLACK)
+            label(format!("{:?}", self.0))
+                .font(GenericFamily::Monospace)
+                .weight(FontWeight::BOLD)
+                .text_size(20.0)
                 .color(RED),
         )
         .main_axis_alignment(xilem::view::MainAxisAlignment::Center)
@@ -150,6 +153,31 @@ impl FuckedState {
     }
 }
 
-fn main() -> Result<(), EventLoopError> {
-    AppState::new().map_or_else(FuckedState::run_app, AppState::run_app)
+fn set_error_handler() {
+    miette::set_hook(Box::new(|_| {
+        Box::new(
+            MietteHandlerOpts::new()
+                .terminal_links(false)
+                .width(80)
+                .wrap_lines(true)
+                .break_words(true)
+                .with_cause_chain()
+                // .without_cause_chain()
+                .show_related_errors_as_nested()
+                // .show_related_errors_as_siblings()
+                .color(false)
+                .unicode(true)
+                .force_graphical(true)
+                .context_lines(1)
+                .build(),
+        )
+    }))
+    .unwrap();
+}
+
+fn main() -> miette::Result<()> {
+    set_error_handler();
+    AppState::new()
+        .map_or_else(FuckedState::run_app, AppState::run_app)
+        .into_diagnostic()
 }
