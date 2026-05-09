@@ -26,8 +26,9 @@ impl LauncherState {
             .map(|recent_folders| Self { recent_folders })
     }
 
-    pub fn push_recent_folder(&mut self, folder: RecentFolder) {
+    pub fn push_recent_folder(&mut self, folder: RecentFolder) -> &[RecentFolder] {
         self.recent_folders.push(folder);
+        &self.recent_folders
     }
 }
 

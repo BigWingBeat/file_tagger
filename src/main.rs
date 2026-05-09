@@ -83,7 +83,10 @@ impl AppState {
         self.active_view = ActiveView::SearchMenu;
         let folder = RecentFolder::from(folder);
         self.search_menu.active_folder = folder.name.to_string_lossy().into_owned();
-        self.launcher.push_recent_folder(folder);
+        let recent_folders = self.launcher.push_recent_folder(folder);
+        self.persistent
+            .write_recent_folders(recent_folders)
+            .unwrap();
     }
 
     fn search_results(&mut self) {

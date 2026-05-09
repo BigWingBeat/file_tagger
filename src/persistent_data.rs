@@ -27,7 +27,8 @@ pub struct PersistentData {
 
 impl PersistentData {
     pub fn open() -> backend::Result<Self> {
-        let path = dirs::data_local_dir().unwrap();
+        let mut path = dirs::data_local_dir().unwrap();
+        path.push(env!("CARGO_BIN_NAME"));
         backend::open(path).and_then(Self::open_tables)
     }
 
@@ -45,6 +46,14 @@ impl PersistentData {
                 .map(PathBuf::into)
                 .collect()
         })
+    }
+
+    pub fn write_recent_folders(&self, recent: &[RecentFolder]) -> backend::Result<()> {
+        let buffer = recent
+            .iter()
+            .filter_map(|folder| folder.path.to_str())
+            .collect();
+        self.table.insert(&DataKey::RecentFolders, &buffer)
     }
 }
 

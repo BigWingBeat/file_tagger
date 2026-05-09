@@ -24,8 +24,14 @@ impl DatabaseState {
     }
 
     pub fn open_in_folder(&mut self, mut path: PathBuf) -> miette::Result<&mut Database> {
-        path.push(".file_tagger");
-        std::fs::create_dir(&path).unwrap();
+        path.push(concat!('.', env!("CARGO_BIN_NAME")));
+        std::fs::create_dir(&path)
+            .or_else(|e| {
+                (e.kind() == std::io::ErrorKind::AlreadyExists)
+                    .then_some(())
+                    .ok_or(e)
+            })
+            .unwrap();
         Database::open(path).map(|db| {
             self.database = db;
             &mut self.database
@@ -228,6 +234,17 @@ impl TryFrom<&[u8]> for InlineStrVec {
     }
 }
 
+impl<'a, A: AsRef<str> + ?Sized> FromIterator<&'a A> for InlineStrVec {
+    fn from_iter<T: IntoIterator<Item = &'a A>>(iter: T) -> Self {
+        let buffer = iter
+            .into_iter()
+            .map(AsRef::as_ref)
+            .flat_map(|s| (s.len() as u32).to_le_bytes().into_iter().chain(s.bytes()))
+            .collect();
+        Self { buffer }
+    }
+}
+
 pub struct InlineStrVecIter<'a> {
     buffer: &'a [u8],
 }
@@ -342,8 +359,8 @@ pub trait Table: Sized {
     }
 
     /// Insert a key to a new value, overwriting any existing value
-    fn insert(&mut self, key: &Self::Key, value: &Self::Value) -> backend::Result<()> {
-        self.table_mut()
+    fn insert(&self, key: &Self::Key, value: &Self::Value) -> backend::Result<()> {
+        self.table()
             .insert(key.as_bytes(), value.as_bytes().as_ref())
     }
 
