@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
@@ -13,49 +11,23 @@ use xilem::{
     },
 };
 
-use crate::AppState;
-
-struct RecentFolder {
-    name: String,
-    path: PathBuf,
-}
+use crate::{
+    AppState,
+    persistent_data::{PersistentData, RecentFolder},
+};
 
 pub struct LauncherState {
     recent_folders: Vec<RecentFolder>,
 }
 
 impl LauncherState {
-    pub fn push_recent_folder(&mut self, name: String, path: PathBuf) {
-        self.recent_folders.push(RecentFolder { name, path });
+    pub fn new(data: &PersistentData) -> miette::Result<Self> {
+        data.recent_folders()
+            .map(|recent_folders| Self { recent_folders })
     }
-}
 
-impl Default for LauncherState {
-    fn default() -> Self {
-        Self {
-            recent_folders: vec![
-                RecentFolder {
-                    name: "Pictures".into(),
-                    path: "~/Pictures".into(),
-                },
-                RecentFolder {
-                    name: "Videos".into(),
-                    path: "~/Videos".into(),
-                },
-                RecentFolder {
-                    name: "Music".into(),
-                    path: "~/Music".into(),
-                },
-                RecentFolder {
-                    name: "Science Papers".into(),
-                    path: "~/Documents/Science Papers".into(),
-                },
-                RecentFolder {
-                    name: "Testing extremely long path and name".into(),
-                    path: "/home/bigwingbeat/Documents/game assets/rain world/Assets/Resources/atlases/".into(),
-                },
-            ],
-        }
+    pub fn push_recent_folder(&mut self, folder: RecentFolder) {
+        self.recent_folders.push(folder);
     }
 }
 
@@ -73,7 +45,7 @@ fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                 // TODO: highlight on hover
                 button(
                     flex_col((
-                        label(folder.name.clone())
+                        label(folder.name.to_string_lossy().into_owned())
                             .weight(FontWeight::BOLD)
                             .line_break_mode(LineBreaking::WordWrap),
                         label(path.to_string_lossy()).line_break_mode(LineBreaking::WordWrap),

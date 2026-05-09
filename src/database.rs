@@ -1,11 +1,16 @@
-use std::{io::Read, marker::PhantomData, path::Path, str::Utf8Error};
+use std::{
+    io::Read,
+    marker::PhantomData,
+    path::{Path, PathBuf},
+    str::Utf8Error,
+};
 
 use miette::IntoDiagnostic;
 use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec};
 use smallvec::SmallVec;
 use thiserror::Error;
 
-mod backend;
+pub mod backend;
 
 use backend::{DatabaseImpl, TableImpl};
 
@@ -18,7 +23,9 @@ impl DatabaseState {
         Database::open_temporary().map(|database| Self { database })
     }
 
-    pub fn open(&mut self, path: impl AsRef<Path>) -> miette::Result<&mut Database> {
+    pub fn open_in_folder(&mut self, mut path: PathBuf) -> miette::Result<&mut Database> {
+        path.push(".file_tagger");
+        std::fs::create_dir(&path).unwrap();
         Database::open(path).map(|db| {
             self.database = db;
             &mut self.database
@@ -152,7 +159,7 @@ impl TryFrom<&[u8]> for Tag {
 }
 
 /// Like a `Vec<String>` but where all the strings are stored inline in a single heap allocation.
-struct InlineStrVec {
+pub struct InlineStrVec {
     // The format this uses is little-endian `u32` length prefixes for each string in the buffer
     buffer: backend::Buffer,
 }
@@ -164,7 +171,13 @@ impl AsRef<[u8]> for InlineStrVec {
 }
 
 impl InlineStrVec {
-    fn iter(&self) -> InlineStrVecIter<'_> {
+    pub fn empty() -> Self {
+        Self {
+            buffer: backend::Buffer::empty(),
+        }
+    }
+
+    pub fn iter(&self) -> InlineStrVecIter<'_> {
         InlineStrVecIter {
             buffer: &self.buffer,
         }
@@ -215,7 +228,7 @@ impl TryFrom<&[u8]> for InlineStrVec {
     }
 }
 
-struct InlineStrVecIter<'a> {
+pub struct InlineStrVecIter<'a> {
     buffer: &'a [u8],
 }
 
@@ -254,7 +267,7 @@ impl<B: AsRef<[u8]>> AsRef<[u8]> for Bytes<'_, B> {
     }
 }
 
-trait AsBytes {
+pub trait AsBytes {
     type Bytes: AsRef<[u8]>;
     fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes>;
 }
@@ -269,11 +282,11 @@ where
     }
 }
 
-trait Key: AsBytes {}
+pub trait Key: AsBytes {}
 
 impl<T> Key for T where T: AsBytes {}
 
-trait Value<'a>: AsBytes + TryFrom<&'a [u8], Error = Self::E> {
+pub trait Value<'a>: AsBytes + TryFrom<&'a [u8], Error = Self::E> {
     type E: std::error::Error + Send + Sync + 'static;
 }
 
@@ -312,9 +325,9 @@ impl<Prefix, Suffix> AsRef<[u8]> for CompositeKey<Prefix, Suffix> {
 }
 
 /// A strongly-typed wrapper around a single keyspace
-trait Table: Sized {
-    type Key: Key;
-    type Value: for<'a> Value<'a>;
+pub trait Table: Sized {
+    type Key: Key + ?Sized;
+    type Value: for<'a> Value<'a> + ?Sized;
 
     const TABLE_NAME: &str;
 
@@ -364,7 +377,7 @@ fn init_or_resume_generator(table: &impl Table<Key = Entry>) -> miette::Result<S
 macro_rules! typed_table {
     ( $(#[$m:meta])* $p:vis struct $n:ident<$k:ty, $v:ty>; ) => {
         $(#[$m])*
-        $p struct $n (backend::Table);
+        $p struct $n (crate::database::backend::Table);
 
         impl crate::database::Table for $n {
             type Key = $k;
@@ -372,22 +385,24 @@ macro_rules! typed_table {
 
             const TABLE_NAME: &str = stringify!($n);
 
-            fn open(database: &backend::Database) -> backend::Result<Self> {
+            fn open(database: &crate::database::backend::Database) -> crate::database::backend::Result<Self> {
                 database.open_table(Self::TABLE_NAME).map(Self)
             }
 
             #[inline(always)]
-            fn table(&self) -> &backend::Table {
+            fn table(&self) -> &crate::database::backend::Table {
                 &self.0
             }
 
             #[inline(always)]
-            fn table_mut(&mut self) -> &mut backend::Table {
+            fn table_mut(&mut self) -> &mut crate::database::backend::Table {
                 &mut self.0
             }
         }
     };
 }
+
+pub(crate) use typed_table;
 
 typed_table! {
     /// Lookup which entries tags are applied to

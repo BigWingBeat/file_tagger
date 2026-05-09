@@ -14,6 +14,7 @@ use crate::{
     database::DatabaseState,
     edit::EditState,
     launcher::LauncherState,
+    persistent_data::{PersistentData, RecentFolder},
     search_menu::SearchMenuState,
     search_results::SearchResultsState,
     view::{launcher_view, search_menu_view, search_results_view},
@@ -22,6 +23,7 @@ use crate::{
 mod database;
 mod edit;
 mod launcher;
+mod persistent_data;
 mod search_menu;
 mod search_results;
 mod view;
@@ -46,6 +48,7 @@ struct AppState {
     launcher: LauncherState,
     search_results: SearchResultsState,
     database: DatabaseState,
+    persistent: PersistentData,
     edit: EditState,
 }
 
@@ -55,7 +58,7 @@ impl AppState {
             .set_title("Open Database As Folder")
             .pick_folder()
         {
-            self.database.open(&folder).unwrap();
+            self.database.open_in_folder(folder.clone()).unwrap();
             self.search_menu(folder);
         }
     }
@@ -65,21 +68,22 @@ impl AppState {
             .set_title("Create New Folder And Database")
             .save_file()
         {
-            self.database.open(&folder).unwrap();
+            std::fs::create_dir(&folder).unwrap();
+            self.database.open_in_folder(folder.clone()).unwrap();
             self.search_menu(folder);
         }
     }
 
     fn open_recent(&mut self, folder: PathBuf) {
-        self.database.open(&folder).unwrap();
+        self.database.open_in_folder(folder.clone()).unwrap();
         self.search_menu(folder);
     }
 
     fn search_menu(&mut self, folder: PathBuf) {
         self.active_view = ActiveView::SearchMenu;
-        let name = folder.file_name().unwrap().to_string_lossy().into_owned();
-        self.search_menu.active_folder = name.clone();
-        self.launcher.push_recent_folder(name, folder);
+        let folder = RecentFolder::from(folder);
+        self.search_menu.active_folder = folder.name.to_string_lossy().into_owned();
+        self.launcher.push_recent_folder(folder);
     }
 
     fn search_results(&mut self) {
@@ -103,12 +107,16 @@ impl AppState {
 
 impl AppState {
     fn new() -> miette::Result<Self> {
-        DatabaseState::create_temporary().map(|database| Self {
+        let database = DatabaseState::create_temporary()?;
+        let persistent = PersistentData::open().into_diagnostic()?;
+        let launcher = LauncherState::new(&persistent)?;
+        Ok(Self {
             active_view: Default::default(),
             search_menu: Default::default(),
-            launcher: Default::default(),
+            launcher,
             search_results: Default::default(),
             database,
+            persistent,
             edit: Default::default(),
         })
     }
