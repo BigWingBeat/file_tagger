@@ -12,6 +12,10 @@ use xilem::{
 
 use crate::AppState;
 
+pub struct SearchBarState {
+    search_text: String,
+}
+
 pub struct SearchMenuState {
     pub active_folder: String,
     search_text: String,

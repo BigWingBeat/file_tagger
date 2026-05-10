@@ -8,21 +8,20 @@ use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec};
 use smallvec::SmallVec;
 use thiserror::Error;
 
-use crate::{
-    database,
-    database::{AsBytes, Bytes, CompositeKey, INLINE_SIZE, InlineStrVec, Table, backend},
+use crate::database::{
+    self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
 };
 
 pub struct DatabaseState {
-    database: Database,
+    database: TagsDatabase,
 }
 
 impl DatabaseState {
     pub fn create_temporary() -> miette::Result<Self> {
-        Database::open_temporary().map(|database| Self { database })
+        TagsDatabase::open_temporary().map(|database| Self { database })
     }
 
-    pub fn open_in_folder(&mut self, mut path: PathBuf) -> miette::Result<&mut Database> {
+    pub fn open_in_folder(&mut self, mut path: PathBuf) -> miette::Result<&mut TagsDatabase> {
         path.push(concat!('.', env!("CARGO_BIN_NAME")));
         std::fs::create_dir(&path)
             .or_else(|e| {
@@ -31,7 +30,7 @@ impl DatabaseState {
                     .ok_or(e)
             })
             .unwrap();
-        Database::open(path).map(|db| {
+        TagsDatabase::open(path).map(|db| {
             self.database = db;
             &mut self.database
         })
@@ -43,15 +42,15 @@ impl DatabaseState {
     }
 }
 
-pub struct Database {
-    database: backend::Database,
+pub struct TagsDatabase {
+    database: Database,
     /// Lookup which entries tags are applied to
     ///
     /// Key: composite (tag name + tag data)
     /// Value: list of entry IDs
     ///
     /// Note: data in key is split by word for strings ("inverted index") and not present for binary blobs
-    entries_by_tag: Table<CompositeKey<Tag, backend::Buffer>, Entry>,
+    entries_by_tag: Table<CompositeKey<Tag, Buffer>, Entry>,
     /// Lookup which tags are applied to entries
     ///
     /// Key: entry ID
@@ -61,7 +60,7 @@ pub struct Database {
     ///
     /// Key: composite (entry ID + tag name)
     /// Value: tag data
-    tag_values: Table<CompositeKey<Entry, Tag>, backend::Buffer>,
+    tag_values: Table<CompositeKey<Entry, Tag>, Buffer>,
     /// Convert tag names to their associated tag entries
     ///
     /// Key: tag name
@@ -70,8 +69,8 @@ pub struct Database {
     generator: Scru64Generator,
 }
 
-impl Database {
-    fn open_tables(database: backend::Database) -> miette::Result<Self> {
+impl TagsDatabase {
+    fn open_tables(database: Database) -> miette::Result<Self> {
         let entries_by_tag = Table::open(&database, "EntriesByTag").into_diagnostic()?;
         let tags_by_entry = Table::open(&database, "TagsByEntry").into_diagnostic()?;
         let tag_values = Table::open(&database, "TagValues").into_diagnostic()?;
@@ -88,13 +87,13 @@ impl Database {
     }
 
     fn open(path: impl AsRef<Path>) -> miette::Result<Self> {
-        backend::open(path)
+        database::open(path)
             .into_diagnostic()
             .and_then(Self::open_tables)
     }
 
     fn open_temporary() -> miette::Result<Self> {
-        backend::open_temporary()
+        database::open_temporary()
             .into_diagnostic()
             .and_then(Self::open_tables)
     }

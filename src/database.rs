@@ -1,12 +1,13 @@
-use std::{io::Read, marker::PhantomData, str::Utf8Error};
+use std::{io::Read, marker::PhantomData, path::Path, str::Utf8Error};
 
 use miette::IntoDiagnostic;
 use smallvec::SmallVec;
 use thiserror::Error;
 
-pub mod backend;
+mod backend;
 
-use backend::{DatabaseImpl, TableImpl};
+pub use backend::{Buffer, Database, Result};
+use backend::{Builder, BuilderImpl, DatabaseImpl, TableImpl};
 
 /// A bit like a [`Cow`], but defined by the owned form of the type, instead of by the borrowed form.
 /// This is needed, instead of just using `Cow`, as we are fixing the borrowed form to be `&[u8]`, and letting the
@@ -181,7 +182,7 @@ pub enum InlineStrVecParseError {
 impl TryFrom<&[u8]> for InlineStrVec {
     type Error = InlineStrVecParseError;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
         // It's important for this to check that the buffer is well-formed so the iterator impl can be infallible
         let mut buffer = value;
         while !buffer.is_empty() {
@@ -284,4 +285,34 @@ impl<Prefix, Suffix> From<&[u8]> for CompositeKey<Prefix, Suffix> {
             marker: PhantomData,
         }
     }
+}
+
+pub fn open(path: impl AsRef<Path>) -> Result<Database> {
+    Builder::new_with_path(path)
+        .compression(true)
+        .temporary(false)
+        .open()
+}
+
+pub fn open_temporary() -> Result<Database> {
+    let id = std::process::id() as u64;
+    let mut range = id..;
+    const MAX_ATTEMPTS: usize = 3;
+    range
+        .by_ref()
+        .take(MAX_ATTEMPTS - 1)
+        .map(try_open_temporary)
+        .find(Result::is_ok)
+        .unwrap_or_else(|| try_open_temporary(range.start))
+}
+
+fn try_open_temporary(id: u64) -> Result<Database> {
+    const UPPER_PHI: u64 = 0x9e37_79b9_0000_0001;
+    let hash = id.wrapping_mul(UPPER_PHI).rotate_left(32);
+    let mut path = std::env::temp_dir();
+    path.push(format!("{hash:x}"));
+    Builder::new_with_path(path)
+        .compression(false)
+        .temporary(true)
+        .open()
 }

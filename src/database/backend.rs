@@ -1,3 +1,5 @@
+//! Defines the interface which is implemented by the backend modules
+
 cfg_select! {
     feature = "backend_fjall" => {
         mod fjall;
@@ -32,35 +34,4 @@ pub trait TableImpl {
     fn insert(&self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()>;
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
-}
-
-pub fn open(path: impl AsRef<Path>) -> Result<Database> {
-    Builder::new_with_path(path)
-        .compression(true)
-        .temporary(false)
-        .open()
-}
-
-pub fn open_temporary() -> Result<Database> {
-    let id = std::process::id() as u64;
-    let mut range = id..;
-    const MAX_ATTEMPTS: usize = 3;
-    for id in range.by_ref().take(MAX_ATTEMPTS - 1) {
-        let result = try_open_temporary(id);
-        if result.is_ok() {
-            return result;
-        }
-    }
-    try_open_temporary(range.start)
-}
-
-fn try_open_temporary(id: u64) -> Result<Database> {
-    const UPPER_PHI: u64 = 0x9e37_79b9_0000_0001;
-    let hash = id.wrapping_mul(UPPER_PHI).rotate_left(32);
-    let mut path = std::env::temp_dir();
-    path.push(format!("{hash:x}"));
-    Builder::new_with_path(path)
-        .compression(false)
-        .temporary(true)
-        .open()
 }
