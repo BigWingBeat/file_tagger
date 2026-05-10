@@ -1,10 +1,8 @@
 use std::{ffi::OsString, path::PathBuf};
 
-use crate::database::{
-    InlineStrVec, Table,
-    backend::{self, DatabaseImpl},
-    typed_table,
-};
+use thiserror::Error;
+
+use crate::database::{InlineStrVec, Table, backend};
 
 pub struct RecentFolder {
     pub name: OsString,
@@ -22,7 +20,7 @@ impl From<PathBuf> for RecentFolder {
 
 pub struct PersistentData {
     database: backend::Database,
-    table: PersistentDataTable,
+    table: Table<DataKey, InlineStrVec>,
 }
 
 impl PersistentData {
@@ -33,7 +31,7 @@ impl PersistentData {
     }
 
     fn open_tables(database: backend::Database) -> backend::Result<Self> {
-        let table = PersistentDataTable::open(&database)?;
+        let table = Table::open(&database, "PersistentData")?;
         Ok(Self { database, table })
     }
 
@@ -61,14 +59,27 @@ enum DataKey {
     RecentFolders,
 }
 
+#[derive(Error, Debug)]
+enum DataKeyParseError {
+    #[error("Invalid key")]
+    InvalidKey,
+}
+
 impl AsRef<[u8]> for DataKey {
     fn as_ref(&self) -> &[u8] {
         match self {
-            DataKey::RecentFolders => "RecentFolders".as_bytes(),
+            DataKey::RecentFolders => b"RecentFolders",
         }
     }
 }
 
-typed_table! {
-    struct PersistentDataTable<DataKey, InlineStrVec>;
+impl TryFrom<&[u8]> for DataKey {
+    type Error = DataKeyParseError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        match value {
+            b"RecentFolders" => Ok(Self::RecentFolders),
+            _ => Err(DataKeyParseError::InvalidKey),
+        }
+    }
 }

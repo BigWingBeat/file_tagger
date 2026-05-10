@@ -11,12 +11,12 @@ use xilem::{
 };
 
 use crate::{
-    database::DatabaseState,
     edit::EditState,
     launcher::LauncherState,
     persistent_data::{PersistentData, RecentFolder},
     search_menu::SearchMenuState,
     search_results::SearchResultsState,
+    tags_db::DatabaseState,
     view::{launcher_view, search_menu_view, search_results_view},
 };
 
@@ -26,6 +26,7 @@ mod launcher;
 mod persistent_data;
 mod search_menu;
 mod search_results;
+mod tags_db;
 mod view;
 
 #[derive(Default)]

@@ -5,7 +5,7 @@ use xilem::{
     view::{FlexSpacer, flex_col, flex_row, label, text_button},
 };
 
-use crate::{AppState, database::Entry};
+use crate::{AppState, tags_db::Entry};
 
 #[derive(Default)]
 pub struct EditState {
