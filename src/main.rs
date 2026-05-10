@@ -12,9 +12,8 @@ use xilem::{
 
 use crate::{
     edit::EditState,
-    launcher::LauncherState,
     persistent_data::{PersistentData, RecentFolder},
-    search_menu::SearchMenuState,
+    search_menu::SearchBarState,
     search_results::SearchResultsState,
     tags_db::DatabaseState,
     view::{launcher_view, search_menu_view, search_results_view},
@@ -45,8 +44,7 @@ enum ActiveView {
 
 struct AppState {
     active_view: ActiveView,
-    search_menu: SearchMenuState,
-    launcher: LauncherState,
+    search_menu: SearchBarState,
     search_results: SearchResultsState,
     database: DatabaseState,
     persistent: PersistentData,
@@ -59,7 +57,6 @@ impl AppState {
             .set_title("Open Database As Folder")
             .pick_folder()
         {
-            self.database.open_in_folder(folder.clone()).unwrap();
             self.search_menu(folder);
         }
     }
@@ -70,24 +67,20 @@ impl AppState {
             .save_file()
         {
             std::fs::create_dir(&folder).unwrap();
-            self.database.open_in_folder(folder.clone()).unwrap();
             self.search_menu(folder);
         }
     }
 
     fn open_recent(&mut self, folder: PathBuf) {
-        self.database.open_in_folder(folder.clone()).unwrap();
         self.search_menu(folder);
     }
 
     fn search_menu(&mut self, folder: PathBuf) {
         self.active_view = ActiveView::SearchMenu;
         let folder = RecentFolder::from(folder);
-        self.search_menu.active_folder = folder.name.to_string_lossy().into_owned();
-        let recent_folders = self.launcher.push_recent_folder(folder);
-        self.persistent
-            .write_recent_folders(recent_folders)
-            .unwrap();
+        self.database.open_in_folder(folder.clone()).unwrap();
+        self.persistent.recent_folders.push(folder);
+        self.persistent.write_recent_folders().unwrap();
     }
 
     fn search_results(&mut self) {
@@ -112,12 +105,10 @@ impl AppState {
 impl AppState {
     fn new() -> miette::Result<Self> {
         let database = DatabaseState::create_temporary()?;
-        let persistent = PersistentData::open().into_diagnostic()?;
-        let launcher = LauncherState::new(&persistent)?;
+        let persistent = PersistentData::open()?;
         Ok(Self {
             active_view: Default::default(),
             search_menu: Default::default(),
-            launcher,
             search_results: Default::default(),
             database,
             persistent,

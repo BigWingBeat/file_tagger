@@ -15,8 +15,9 @@ use crate::{
     AppState,
     edit::edit,
     launcher::launcher,
-    search_menu::{active_folder_name, import_button, search_bar},
+    search_menu::{import_button, search_bar},
     search_results::search_results,
+    tags_db::active_folder_name,
 };
 
 pub fn centered_box<Seq, State>(seq: Seq) -> impl WidgetView<State> + use<Seq, State>
@@ -46,7 +47,7 @@ pub fn launcher_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> 
 pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     centered_box((
         lens(active_folder_name, |state: &mut AppState| {
-            &mut state.search_menu
+            &mut state.database
         }),
         search_bar(state),
         import_button(state),
@@ -58,7 +59,7 @@ pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use
 pub fn search_results_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     centered_box((
         lens(active_folder_name, |state: &mut AppState| {
-            &mut state.search_menu
+            &mut state.database
         }),
         search_bar(state),
         import_button(state),

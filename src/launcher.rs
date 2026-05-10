@@ -1,78 +1,17 @@
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
-        layout::{Dim, Length},
-        properties::{Dimensions, Gap, LineBreaking},
+        layout::Dim,
+        properties::{Dimensions, Gap},
     },
     style::Style,
     view::{
-        CrossAxisAlignment, FlexExt, MainAxisAlignment, button, flex_col, flex_item, flex_row,
-        label, portal, text_button,
+        CrossAxisAlignment, FlexExt, MainAxisAlignment, flex_col, flex_item, flex_row, label,
+        text_button,
     },
 };
 
-use crate::{
-    AppState,
-    persistent_data::{PersistentData, RecentFolder},
-};
-
-pub struct LauncherState {
-    recent_folders: Vec<RecentFolder>,
-}
-
-impl LauncherState {
-    pub fn new(data: &PersistentData) -> miette::Result<Self> {
-        data.recent_folders()
-            .map(|recent_folders| Self { recent_folders })
-    }
-
-    pub fn push_recent_folder(&mut self, folder: RecentFolder) -> &[RecentFolder] {
-        self.recent_folders.push(folder);
-        &self.recent_folders
-    }
-}
-
-fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
-    // Instead, they are always as wide as possible
-    flex_col(
-        state
-            .launcher
-            .recent_folders
-            .iter()
-            .rev()
-            .map(|folder| {
-                let path = folder.path.clone();
-                // TODO: highlight on hover
-                button(
-                    flex_col((
-                        label(folder.name.to_string_lossy().into_owned())
-                            .weight(FontWeight::BOLD)
-                            .line_break_mode(LineBreaking::WordWrap),
-                        label(path.to_string_lossy()).line_break_mode(LineBreaking::WordWrap),
-                    ))
-                    .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .gap(Length::const_px(0.0)),
-                    move |state: &mut AppState| {
-                        state.open_recent(path.clone());
-                    },
-                )
-                .border_width(0.0)
-            })
-            .collect::<Vec<_>>(),
-    )
-    .gap(Length::const_px(1.0))
-    .dims(Dimensions::width(Dim::Stretch))
-}
-
-fn recent_list_portal(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    flex_col((
-        label("Open Recent")
-            .weight(FontWeight::BOLD)
-            .text_size(20.0),
-        portal(recent_list(state)).constrain_horizontal(true),
-    ))
-}
+use crate::AppState;
 
 /// The "open" button selects an existing folder and either creates a new database in that folder, or opens a database
 /// that already exists there.
@@ -115,7 +54,7 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
 
 pub fn launcher(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_row((
-        flex_item(recent_list_portal(state), 0.5),
+        flex_item(crate::persistent_data::recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),
     ))
 }

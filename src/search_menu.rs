@@ -1,51 +1,28 @@
 use xilem::{
-    FontWeight, WidgetView,
-    masonry::{
-        layout::{Dim, Length},
-        properties::Dimensions,
-        theme::ZYNC_600,
-    },
+    WidgetView,
+    masonry::{layout::Length, theme::ZYNC_600},
     palette::css::TRANSPARENT,
     style::{Padding, Style},
-    view::{FlexExt, flex_row, label, text_button, text_input},
+    view::{FlexExt, flex_row, text_button, text_input},
 };
 
 use crate::AppState;
 
+#[derive(Default)]
 pub struct SearchBarState {
     search_text: String,
 }
 
-pub struct SearchMenuState {
-    pub active_folder: String,
-    search_text: String,
-}
-
-impl Default for SearchMenuState {
-    fn default() -> Self {
-        Self {
-            active_folder: "Folder".to_owned(),
-            search_text: String::new(),
-        }
-    }
-}
-
-pub fn active_folder_name(state: &mut SearchMenuState) -> impl WidgetView<SearchMenuState> + use<> {
-    label(state.active_folder.clone())
-        .weight(FontWeight::BOLD)
-        .text_size(20.0)
-        .dims(Dimensions::width(Dim::Stretch))
-}
-
 pub fn search_bar(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     // Hoist the `text_input` styling to the enclosing `flex_row` so the button looks like it's inside the text box
+    // TODO: on-hover styling (see: <https://github.com/linebender/xilem/issues/1786>)
     flex_row((
         text_input(
             state.search_menu.search_text.clone(),
             |state: &mut AppState, text| state.search_menu.search_text = text,
         )
         .on_enter(|state: &mut AppState, _| state.search_results())
-        .placeholder("Search files by tag")
+        .placeholder("Search database by tag")
         .border_width(0.0)
         .background(TRANSPARENT)
         .flex(1.0),

@@ -77,6 +77,7 @@ impl Default for SearchResultsState {
 pub fn search_results(
     state: &mut SearchResultsState,
 ) -> impl WidgetView<SearchResultsState> + use<> {
+    // TODO: see <https://github.com/linebender/xilem/issues/1785>
     let cols = 4;
     grid(
         state

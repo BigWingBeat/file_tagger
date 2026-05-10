@@ -1,37 +1,58 @@
-use std::{
-    path::{Path, PathBuf},
-    str::Utf8Error,
-};
+use std::{path::Path, str::Utf8Error};
 
 use miette::IntoDiagnostic;
 use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec};
 use smallvec::SmallVec;
 use thiserror::Error;
+use xilem::{
+    FontWeight, WidgetView,
+    masonry::{layout::Dim, properties::Dimensions},
+    style::Style,
+    view::label,
+};
 
-use crate::database::{
-    self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
+use crate::{
+    database::{
+        self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
+    },
+    persistent_data::RecentFolder,
 };
 
 pub struct DatabaseState {
     database: TagsDatabase,
+    active_folder: String,
+}
+
+pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<DatabaseState> + use<> {
+    label(state.active_folder.clone())
+        .weight(FontWeight::BOLD)
+        .text_size(20.0)
+        .dims(Dimensions::width(Dim::Stretch))
 }
 
 impl DatabaseState {
     pub fn create_temporary() -> miette::Result<Self> {
-        TagsDatabase::open_temporary().map(|database| Self { database })
+        TagsDatabase::open_temporary().map(|database| Self {
+            database,
+            active_folder: Default::default(),
+        })
     }
 
-    pub fn open_in_folder(&mut self, mut path: PathBuf) -> miette::Result<&mut TagsDatabase> {
-        path.push(concat!('.', env!("CARGO_BIN_NAME")));
-        std::fs::create_dir(&path)
+    pub fn open_in_folder(
+        &mut self,
+        mut folder: RecentFolder,
+    ) -> miette::Result<&mut TagsDatabase> {
+        folder.path.push(concat!('.', env!("CARGO_BIN_NAME")));
+        std::fs::create_dir(&folder.path)
             .or_else(|e| {
                 (e.kind() == std::io::ErrorKind::AlreadyExists)
                     .then_some(())
                     .ok_or(e)
             })
             .unwrap();
-        TagsDatabase::open(path).map(|db| {
+        TagsDatabase::open(folder.path).map(|db| {
             self.database = db;
+            self.active_folder = folder.name.to_string_lossy().into_owned();
             &mut self.database
         })
     }
