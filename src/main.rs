@@ -6,7 +6,7 @@ use xilem::{
     masonry::{parley::GenericFamily, theme::ZYNC_900},
     palette::css::RED,
     style::Style,
-    view::{flex_col, label},
+    view::{flex_col, flex_row, prose},
     winit::error::EventLoopError,
 };
 
@@ -135,12 +135,14 @@ struct FuckedState(miette::Report);
 
 impl FuckedState {
     fn app_logic(&mut self) -> impl WidgetView<Self> + use<> {
+        flex_row(
         flex_col(
-            label(format!("{:?}", self.0))
+                prose(format!("{:?}", self.0))
                 .font(GenericFamily::Monospace)
                 .weight(FontWeight::BOLD)
-                .text_size(20.0)
-                .color(RED),
+                    .text_size(20.0), // .color(RED),
+            )
+            .main_axis_alignment(xilem::view::MainAxisAlignment::Center),
         )
         .main_axis_alignment(xilem::view::MainAxisAlignment::Center)
         .background_color(ZYNC_900)
