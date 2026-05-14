@@ -140,7 +140,8 @@ impl FuckedState {
                 prose(format!("{:?}", self.0))
                 .font(GenericFamily::Monospace)
                 .weight(FontWeight::BOLD)
-                    .text_size(20.0), // .color(RED),
+                    .text_size(20.0)
+                    .text_color(RED),
             )
             .main_axis_alignment(xilem::view::MainAxisAlignment::Center),
         )
