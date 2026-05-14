@@ -6,7 +6,7 @@ use xilem::{
     },
     style::Style,
     view::{
-        CrossAxisAlignment, FlexExt, MainAxisAlignment, flex_col, flex_item, flex_row, label,
+        CrossAxisAlignment, FlexExt, MainAxisAlignment, flex_col, flex_item, flex_row, prose,
         text_button,
     },
 };
@@ -22,8 +22,8 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
     flex_col((
         flex_row((
             flex_col((
-                label("Open Folder As Database").weight(FontWeight::BOLD),
-                label("Open or create a database in a folder"),
+                prose("Open Folder As Database").weight(FontWeight::BOLD),
+                prose("Open or create a database in a folder"),
             ))
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
@@ -36,8 +36,8 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
         )),
         flex_row((
             flex_col((
-                label("Create New Database").weight(FontWeight::BOLD),
-                label("Create a new folder with a new database"),
+                prose("Create New Database").weight(FontWeight::BOLD),
+                prose("Create a new folder with a new database"),
             ))
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)

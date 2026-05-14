@@ -9,7 +9,7 @@ use xilem::{
         properties::{Dimensions, LineBreaking},
     },
     style::Style,
-    view::{CrossAxisAlignment, button, flex_col, label, portal},
+    view::{CrossAxisAlignment, button, flex_col, portal, prose},
 };
 
 use crate::{
@@ -52,10 +52,10 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                 // TODO: highlight on hover
                 button(
                     flex_col((
-                        label(folder.name.to_string_lossy().into_owned())
+                        prose(folder.name.to_string_lossy().into_owned())
                             .weight(FontWeight::BOLD)
                             .line_break_mode(LineBreaking::WordWrap),
-                        label(path.to_string_lossy()).line_break_mode(LineBreaking::WordWrap),
+                        prose(path.to_string_lossy()).line_break_mode(LineBreaking::WordWrap),
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(Length::const_px(0.0)),
@@ -73,7 +73,7 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
 
 pub fn recent_list_portal(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_col((
-        label("Open Recent")
+        prose("Open Recent")
             .weight(FontWeight::BOLD)
             .text_size(20.0),
         portal(recent_list(state)).constrain_horizontal(true),

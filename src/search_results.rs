@@ -1,6 +1,6 @@
 use xilem::{
     WidgetView,
-    view::{GridParams, grid, grid_item, label},
+    view::{GridParams, grid, grid_item, prose},
 };
 
 struct Entry {
@@ -86,7 +86,7 @@ pub fn search_results(
             .enumerate()
             .map(|(i, entry)| {
                 grid_item(
-                    label(entry.name.clone()),
+                    prose(entry.name.clone()),
                     GridParams::new((i % cols) as _, (i / cols) as _, 1, 1),
                 )
             })

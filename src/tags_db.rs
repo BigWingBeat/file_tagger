@@ -8,7 +8,7 @@ use xilem::{
     FontWeight, WidgetView,
     masonry::{layout::Dim, properties::Dimensions},
     style::Style,
-    view::label,
+    view::prose,
 };
 
 use crate::{
@@ -24,7 +24,7 @@ pub struct DatabaseState {
 }
 
 pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<DatabaseState> + use<> {
-    label(state.active_folder.clone())
+    prose(state.active_folder.clone())
         .weight(FontWeight::BOLD)
         .text_size(20.0)
         .dims(Dimensions::width(Dim::Stretch))

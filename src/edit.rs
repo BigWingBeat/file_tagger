@@ -2,7 +2,7 @@ use xilem::{
     FontWeight, WidgetView,
     masonry::theme::ZYNC_600,
     style::Style,
-    view::{FlexSpacer, flex_col, flex_row, label, text_button},
+    view::{FlexSpacer, flex_col, flex_row, prose, text_button},
 };
 
 use crate::{AppState, tags_db::Entry};
@@ -21,7 +21,7 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                 .entries
                 .iter()
                 .enumerate()
-                .map(|(i, entry)| label(format!("entry {i}")))
+                .map(|(i, entry)| prose(format!("entry {i}")))
                 .collect::<Vec<_>>(),
         )
         .border(ZYNC_600, 1.0)
@@ -39,7 +39,7 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
             // Open file picker, prefill with appropriate tags from file metadata
             text_button("＋ Import Files", |_| {}),
         )),
-        label("Tags").weight(FontWeight::BOLD).text_size(20.0),
+        prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
         // Intersection of tags applied to all selected entries
         flex_col(FlexSpacer::Flex(1.0))
             .border(ZYNC_600, 1.0)
