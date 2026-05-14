@@ -33,7 +33,7 @@ where
         flex_col(seq)
             .main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .dims((Length::const_px(1000.0), Length::const_px(375.0)))
-            .padding(10.0)
+            .padding(Length::const_px(10.0))
             .background_color(ZYNC_800),
     )
     .main_axis_alignment(MainAxisAlignment::Center)

@@ -63,7 +63,7 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                         state.open_recent(path.clone());
                     },
                 )
-                .border_width(0.0)
+                .border_width(Length::const_px(0.0))
             })
             .collect::<Vec<_>>(),
     )

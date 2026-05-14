@@ -1,6 +1,6 @@
 use xilem::{
     FontWeight, WidgetView,
-    masonry::theme::ZYNC_600,
+    masonry::{layout::Length, theme::ZYNC_600},
     style::Style,
     view::{FlexSpacer, flex_col, flex_row, prose, text_button},
 };
@@ -24,8 +24,8 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                 .map(|(i, entry)| prose(format!("entry {i}")))
                 .collect::<Vec<_>>(),
         )
-        .border(ZYNC_600, 1.0)
-        .corner_radius(4.0),
+        .border(ZYNC_600, Length::const_px(1.0))
+        .corner_radius(Length::const_px(4.0)),
         // Ways of adding more entries to be edited
         flex_row((
             FlexSpacer::Flex(1.0),
@@ -42,8 +42,8 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
         prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
         // Intersection of tags applied to all selected entries
         flex_col(FlexSpacer::Flex(1.0))
-            .border(ZYNC_600, 1.0)
-            .corner_radius(4.0),
+            .border(ZYNC_600, Length::const_px(1.0))
+            .corner_radius(Length::const_px(4.0)),
         flex_row((
             FlexSpacer::Flex(1.0),
             text_button("Save Changes", |state: &mut AppState| {}),
