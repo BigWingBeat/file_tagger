@@ -1,20 +1,19 @@
-[package]
-name = "file_tagger"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["file_tagger_internals", "file_tagger_xilem"]
+resolver = "3"
 
-[dependencies]
+[workspace.package]
+authors = ["bigwingbeat"]
+edition = "2024"
+version = "0.1.0"
+
+[workspace.dependencies]
 dirs = "6.0"
-fjall = { version = "3.1", optional = true }
+fjall = { version = "3.1" }
 miette = { version = "7.6", features = ["fancy-no-syscall"] }
 rfd = "0.17"
 scru64 = { version = "2.0", default-features = false, features = ["std"] }
-sled = { version = "0.34", features = ["compression"], optional = true }
+sled = { version = "0.34", features = ["compression"] }
 smallvec = { version = "1.15", features = ["union", "const_generics", "const_new"] }
 thiserror = "2.0"
-xilem = { git = "https://github.com/linebender/xilem", branch = "main" }
-
-[features]
-default = ["backend_fjall"]
-backend_fjall = ["dep:fjall"]
-backend_sled = ["dep:sled"]
+xilem = { path = "../../../src/xilem/xilem" }

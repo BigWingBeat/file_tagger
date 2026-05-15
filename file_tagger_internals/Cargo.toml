@@ -1,0 +1,21 @@
+[package]
+name = "file_tagger_internals"
+description = "All the non-gui code for file tagger"
+authors.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+dirs.workspace = true
+fjall = { workspace = true, optional = true }
+miette.workspace = true
+rfd.workspace = true
+scru64.workspace = true
+sled = { workspace = true, optional = true }
+smallvec.workspace = true
+thiserror.workspace = true
+
+[features]
+default = ["backend_fjall"]
+backend_fjall = ["dep:fjall"]
+backend_sled = ["dep:sled"]

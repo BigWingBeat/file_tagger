@@ -1,0 +1,15 @@
+[package]
+name = "file_tagger_xilem"
+description = "Frontend for file tagger built with Xilem"
+authors.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+file_tagger_internals = { path = "../file_tagger_internals" }
+xilem.workspace = true
+
+[features]
+default = ["backend_fjall"]
+backend_fjall = ["file_tagger_internals/backend_fjall"]
+backend_sled = ["file_tagger_internals/backend_sled"]
