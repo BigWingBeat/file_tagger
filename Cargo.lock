@@ -1037,6 +1037,7 @@ name = "file_tagger_xilem"
 version = "0.1.0"
 dependencies = [
  "file_tagger_internals",
+ "miette",
  "xilem",
 ]
 

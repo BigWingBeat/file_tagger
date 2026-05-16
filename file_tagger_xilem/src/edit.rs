@@ -5,12 +5,7 @@ use xilem::{
     view::{FlexSpacer, flex_col, flex_row, prose, text_button},
 };
 
-use crate::{AppState, tags_db::Entry};
-
-#[derive(Default)]
-pub struct EditState {
-    pub entries: Vec<Entry>,
-}
+use file_tagger_internals::AppState;
 
 pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_col((
@@ -18,7 +13,7 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
         flex_row(
             state
                 .edit
-                .entries
+                .entries()
                 .iter()
                 .enumerate()
                 .map(|(i, entry)| prose(format!("entry {i}")))
@@ -31,8 +26,7 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
             FlexSpacer::Flex(1.0),
             // New empty entry, prefilled with tag metatags
             text_button("＋ Create Tag", |state: &mut AppState| {
-                let entry = state.database.generate_entry();
-                state.edit.entries.push(entry);
+                state.generate_entry();
             }),
             // Open search menu to select existing entries
             text_button("＋ Add Entries", |_| {}),

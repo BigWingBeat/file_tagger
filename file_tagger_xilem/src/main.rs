@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use file_tagger_internals::{ActiveView, AppState};
 use miette::{IntoDiagnostic, MietteHandlerOpts};
 use xilem::{
     AnyWidgetView, EventLoop, FontWeight, WidgetView, WindowOptions, Xilem,
@@ -10,125 +9,27 @@ use xilem::{
     winit::error::EventLoopError,
 };
 
-use crate::{
-    edit::EditState,
-    persistent_data::{PersistentData, RecentFolder},
-    search_menu::SearchBarState,
-    search_results::SearchResultsState,
-    tags_db::DatabaseState,
-    view::{launcher_view, search_menu_view, search_results_view},
-};
+use crate::view::{launcher_view, search_menu_view, search_results_view};
 
-mod database;
 mod edit;
 mod launcher;
 mod persistent_data;
 mod search_menu;
 mod search_results;
-mod tags_db;
 mod view;
 
-#[derive(Default)]
-enum ActiveView {
-    /// No database is open. Buttons for opening/creating a database
-    #[default]
-    Launcher,
-    /// A database is open. Buttons for opening/creating a database, plus a search bar.
-    /// Automatically open previously opened database to this view on startup, if possible
-    SearchMenu,
-    /// Grid of search results, plus a search bar, and button to go back to `SearchMenu`
-    SearchResults,
-    /// Edit tags of entries
-    Edit,
-}
-
-struct AppState {
-    active_view: ActiveView,
-    search_menu: SearchBarState,
-    search_results: SearchResultsState,
-    database: DatabaseState,
-    persistent: PersistentData,
-    edit: EditState,
-}
-
-impl AppState {
-    fn open_database_in_folder(&mut self) {
-        if let Some(folder) = rfd::FileDialog::new()
-            .set_title("Open Database As Folder")
-            .pick_folder()
-        {
-            self.search_menu(folder);
-        }
-    }
-
-    fn create_folder_with_database(&mut self) {
-        if let Some(folder) = rfd::FileDialog::new()
-            .set_title("Create New Folder And Database")
-            .save_file()
-        {
-            std::fs::create_dir(&folder).unwrap();
-            self.search_menu(folder);
-        }
-    }
-
-    fn open_recent(&mut self, folder: PathBuf) {
-        self.search_menu(folder);
-    }
-
-    fn search_menu(&mut self, folder: PathBuf) {
-        self.active_view = ActiveView::SearchMenu;
-        let folder = RecentFolder::from(folder);
-        self.database.open_in_folder(folder.clone()).unwrap();
-        self.persistent.recent_folders.push(folder);
-        self.persistent.write_recent_folders().unwrap();
-    }
-
-    fn search_results(&mut self) {
-        self.active_view = ActiveView::SearchResults;
-    }
-
-    fn import_files(&mut self) {
-        if let Some(paths) = rfd::FileDialog::new()
-            .set_title("Select Files to Import")
-            .pick_files()
-        {
-            self.active_view = ActiveView::Edit;
-            // self.edit.entries = paths;
-        }
-    }
-
-    fn edit_tags(&mut self) {
-        self.active_view = ActiveView::Edit;
+fn app_logic(state: &mut AppState) -> Box<AnyWidgetView<AppState>> {
+    match state.active_view {
+        ActiveView::Launcher => launcher_view(state).boxed(),
+        ActiveView::SearchMenu => search_menu_view(state).boxed(),
+        ActiveView::SearchResults => search_results_view(state).boxed(),
+        ActiveView::Edit => todo!(),
     }
 }
 
-impl AppState {
-    fn new() -> miette::Result<Self> {
-        let database = DatabaseState::create_temporary()?;
-        let persistent = PersistentData::open()?;
-        Ok(Self {
-            active_view: Default::default(),
-            search_menu: Default::default(),
-            search_results: Default::default(),
-            database,
-            persistent,
-            edit: Default::default(),
-        })
-    }
-
-    fn app_logic(&mut self) -> Box<AnyWidgetView<Self>> {
-        match self.active_view {
-            ActiveView::Launcher => launcher_view(self).boxed(),
-            ActiveView::SearchMenu => search_menu_view(self).boxed(),
-            ActiveView::SearchResults => search_results_view(self).boxed(),
-            ActiveView::Edit => todo!(),
-        }
-    }
-
-    fn run_app(self) -> Result<(), EventLoopError> {
-        Xilem::new_simple(self, Self::app_logic, WindowOptions::new("File Tagger"))
-            .run_in(EventLoop::with_user_event())
-    }
+fn run_app(state: AppState) -> Result<(), EventLoopError> {
+    Xilem::new_simple(state, app_logic, WindowOptions::new("File Tagger"))
+        .run_in(EventLoop::with_user_event())
 }
 
 struct FuckedState(miette::Report);
@@ -136,10 +37,10 @@ struct FuckedState(miette::Report);
 impl FuckedState {
     fn app_logic(&mut self) -> impl WidgetView<Self> + use<> {
         flex_row(
-        flex_col(
+            flex_col(
                 prose(format!("{:?}", self.0))
-                .font(GenericFamily::Monospace)
-                .weight(FontWeight::BOLD)
+                    .font(GenericFamily::Monospace)
+                    .weight(FontWeight::BOLD)
                     .text_size(20.0)
                     .text_color(RED),
             )
@@ -184,6 +85,6 @@ fn set_error_handler() {
 fn main() -> miette::Result<()> {
     set_error_handler();
     AppState::new()
-        .map_or_else(FuckedState::run_app, AppState::run_app)
+        .map_or_else(FuckedState::run_app, run_app)
         .into_diagnostic()
 }

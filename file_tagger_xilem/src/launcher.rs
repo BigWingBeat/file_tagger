@@ -11,7 +11,7 @@ use xilem::{
     },
 };
 
-use crate::AppState;
+use file_tagger_internals::AppState;
 
 /// The "open" button selects an existing folder and either creates a new database in that folder, or opens a database
 /// that already exists there.

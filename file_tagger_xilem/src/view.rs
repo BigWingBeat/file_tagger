@@ -1,23 +1,24 @@
 //! Functions that define all the top-level views and handle state lensing
 
 use xilem::{
-    WidgetView,
+    FontWeight, WidgetView,
     core::lens,
     masonry::{
-        layout::Length,
+        layout::{Dim, Length},
+        properties::Dimensions,
         theme::{ZYNC_800, ZYNC_900},
     },
     style::Style,
-    view::{Flex, FlexSequence, FlexSpacer, MainAxisAlignment, flex_col},
+    view::{Flex, FlexSequence, FlexSpacer, MainAxisAlignment, flex_col, prose},
 };
 
+use file_tagger_internals::{AppState, DatabaseState};
+
 use crate::{
-    AppState,
     edit::edit,
     launcher::launcher,
     search_menu::{import_button, search_bar},
     search_results::search_results,
-    tags_db::active_folder_name,
 };
 
 pub fn centered_box<Seq, State>(seq: Seq) -> impl WidgetView<State> + use<Seq, State>
@@ -71,4 +72,11 @@ pub fn search_results_view(state: &mut AppState) -> impl WidgetView<AppState> + 
 
 pub fn edit_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     edit(state)
+}
+
+pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<DatabaseState> + use<> {
+    prose(state.active_folder())
+        .weight(FontWeight::BOLD)
+        .text_size(20.0)
+        .dims(Dimensions::width(Dim::Stretch))
 }

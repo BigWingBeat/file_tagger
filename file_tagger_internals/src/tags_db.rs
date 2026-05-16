@@ -4,18 +4,13 @@ use miette::IntoDiagnostic;
 use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec};
 use smallvec::SmallVec;
 use thiserror::Error;
-use xilem::{
-    FontWeight, WidgetView,
-    masonry::{layout::Dim, properties::Dimensions},
-    style::Style,
-    view::prose,
-};
 
 use crate::{
+    FOLDER_NAME,
+    app_data::RecentFolder,
     database::{
         self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
     },
-    persistent_data::RecentFolder,
 };
 
 pub struct DatabaseState {
@@ -23,14 +18,11 @@ pub struct DatabaseState {
     active_folder: String,
 }
 
-pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<DatabaseState> + use<> {
-    prose(state.active_folder.clone())
-        .weight(FontWeight::BOLD)
-        .text_size(20.0)
-        .dims(Dimensions::width(Dim::Stretch))
-}
-
 impl DatabaseState {
+    pub fn active_folder(&self) -> &str {
+        &self.active_folder
+    }
+
     pub fn create_temporary() -> miette::Result<Self> {
         TagsDatabase::open_temporary().map(|database| Self {
             database,
@@ -42,7 +34,7 @@ impl DatabaseState {
         &mut self,
         mut folder: RecentFolder,
     ) -> miette::Result<&mut TagsDatabase> {
-        folder.path.push(concat!('.', env!("CARGO_BIN_NAME")));
+        folder.path.push(FOLDER_NAME);
         std::fs::create_dir(&folder.path)
             .or_else(|e| {
                 (e.kind() == std::io::ErrorKind::AlreadyExists)

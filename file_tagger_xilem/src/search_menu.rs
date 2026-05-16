@@ -6,12 +6,7 @@ use xilem::{
     view::{FlexExt, flex_row, text_button, text_input},
 };
 
-use crate::AppState;
-
-#[derive(Default)]
-pub struct SearchBarState {
-    search_text: String,
-}
+use file_tagger_internals::AppState;
 
 pub fn search_bar(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     // Hoist the `text_input` styling to the enclosing `flex_row` so the button looks like it's inside the text box
