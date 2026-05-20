@@ -1,15 +1,21 @@
 //! Functions that define all the top-level views and handle state lensing
+use std::fmt::Debug;
 
 use xilem::{
     FontWeight, WidgetView,
     core::lens,
     masonry::{
         layout::{Dim, Length},
+        parley::GenericFamily,
         properties::Dimensions,
-        theme::{ZYNC_800, ZYNC_900},
+        theme::{ZYNC_700, ZYNC_800, ZYNC_900},
     },
-    style::Style,
-    view::{Flex, FlexSequence, FlexSpacer, MainAxisAlignment, flex_col, prose},
+    palette::css::RED,
+    style::{Padding, Style},
+    view::{
+        Flex, FlexSequence, FlexSpacer, MainAxisAlignment, ZStackSequence, flex_col, flex_row,
+        prose, text_button, zstack,
+    },
 };
 
 use file_tagger_internals::{AppState, DatabaseState};
@@ -79,4 +85,41 @@ pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<Database
         .weight(FontWeight::BOLD)
         .text_size(20.0)
         .dims(Dimensions::width(Dim::Stretch))
+}
+
+pub fn overlay_error<Seq, State, E, F>(
+    seq: Seq,
+    e: Option<&E>,
+    callback: F,
+) -> impl WidgetView<State> + use<Seq, State, E, F>
+where
+    F: Fn(&mut State) + Send + Sync + 'static,
+    E: Debug + 'static,
+    State: 'static,
+    Seq: ZStackSequence<State> + Send + Sync,
+    Flex<Seq, State>: WidgetView<State>,
+    <Flex<Seq, State> as WidgetView<State>>::Widget: Sized,
+{
+    zstack((
+        seq,
+        e.map(|e| {
+            flex_row(
+                flex_col((
+                    prose(format!("{e:?}"))
+                        .font(GenericFamily::Monospace)
+                        .weight(FontWeight::BOLD)
+                        .text_size(20.0)
+                        .text_color(RED),
+                    text_button("Oops", callback),
+                ))
+                .main_axis_alignment(xilem::view::MainAxisAlignment::Center)
+                .background_color(ZYNC_700)
+                .border(ZYNC_800, Length::const_px(2.0))
+                .corner_radius(Length::const_px(6.0))
+                .padding(Padding::all(Length::const_px(16.0)))
+                .dims(Dimensions::height(Dim::MinContent)),
+            )
+            .main_axis_alignment(xilem::view::MainAxisAlignment::Center)
+        }),
+    ))
 }
