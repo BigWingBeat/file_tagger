@@ -16,7 +16,7 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_col(
         state
             .persistent
-            .recent_folders
+            .recent_folders()
             .iter()
             .rev()
             .map(|folder| {

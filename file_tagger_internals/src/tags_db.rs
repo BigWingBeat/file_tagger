@@ -1,4 +1,7 @@
-use std::{path::Path, str::Utf8Error};
+use std::{
+    path::{Path, PathBuf},
+    str::Utf8Error,
+};
 
 use miette::IntoDiagnostic;
 use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec};
@@ -15,38 +18,38 @@ use crate::{
 
 pub struct DatabaseState {
     database: TagsDatabase,
-    active_folder: String,
+    active_folder: RecentFolder,
 }
 
 impl DatabaseState {
-    pub fn active_folder(&self) -> &str {
+    pub fn active_folder(&self) -> &RecentFolder {
         &self.active_folder
     }
 
     pub fn create_temporary() -> miette::Result<Self> {
         TagsDatabase::open_temporary().map(|database| Self {
             database,
-            active_folder: Default::default(),
+            active_folder: PathBuf::default().into(),
         })
     }
 
-    pub fn open_in_folder(
-        &mut self,
-        mut folder: RecentFolder,
-    ) -> miette::Result<&mut TagsDatabase> {
-        folder.path.push(FOLDER_NAME);
-        std::fs::create_dir(&folder.path)
+    pub fn open_in_folder(&mut self, folder: RecentFolder) -> miette::Result<&mut TagsDatabase> {
+        let mut db_folder = folder.clone();
+        db_folder.path.push(FOLDER_NAME);
+        std::fs::create_dir(&db_folder.path)
             .or_else(|e| {
+                // Ignore error if the dir already exists, as that's fine
                 (e.kind() == std::io::ErrorKind::AlreadyExists)
                     .then_some(())
                     .ok_or(e)
             })
-            .unwrap();
-        TagsDatabase::open(folder.path).map(|db| {
-            self.database = db;
-            self.active_folder = folder.name.to_string_lossy().into_owned();
-            &mut self.database
-        })
+            .into_diagnostic()
+            .and_then(|_| TagsDatabase::open(db_folder.path))
+            .map(|db| {
+                self.database = db;
+                self.active_folder = folder;
+                &mut self.database
+            })
     }
 
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.

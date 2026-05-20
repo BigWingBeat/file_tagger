@@ -4,6 +4,8 @@ mod app_data;
 mod database;
 mod tags_db;
 
+use miette::{IntoDiagnostic, Report};
+
 pub use crate::{
     app_data::{AppData, RecentFolder},
     tags_db::{DatabaseState, Entry},
@@ -64,6 +66,20 @@ pub struct AppState {
     pub database: DatabaseState,
     pub persistent: AppData,
     pub edit: EditState,
+    pub latest_error: Option<Report>,
+}
+
+macro_rules! set_err {
+    ($this:ident, $result:expr) => {{
+        let result: Result<_, Report> = $result;
+        match result {
+            Ok(ok) => ok,
+            Err(e) => {
+                $this.latest_error = Some(e);
+                return;
+            }
+        }
+    }};
 }
 
 impl AppState {
@@ -91,11 +107,17 @@ impl AppState {
     }
 
     pub fn search_menu(&mut self, folder: PathBuf) {
+        if self.database.active_folder().path == folder {
+            return;
+        }
+
+        let folder = self.persistent.push_recent_folder(folder);
+        set_err!(self, self.database.open_in_folder(folder.clone()));
+        set_err!(
+            self,
+            self.persistent.write_recent_folders().into_diagnostic()
+        );
         self.active_view = ActiveView::SearchMenu;
-        let folder = RecentFolder::from(folder);
-        self.database.open_in_folder(folder.clone()).unwrap();
-        self.persistent.recent_folders.push(folder);
-        self.persistent.write_recent_folders().unwrap();
     }
 
     pub fn search_results(&mut self) {
@@ -136,6 +158,7 @@ impl AppState {
             database,
             persistent,
             edit: Default::default(),
+            latest_error: None,
         })
     }
 }

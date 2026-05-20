@@ -14,6 +14,14 @@ pub struct RecentFolder {
     pub path: PathBuf,
 }
 
+impl Eq for RecentFolder {}
+
+impl PartialEq for RecentFolder {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
 impl From<PathBuf> for RecentFolder {
     fn from(path: PathBuf) -> Self {
         Self {
@@ -27,7 +35,7 @@ impl From<PathBuf> for RecentFolder {
 pub struct AppData {
     database: Database,
     table: Table<DataKey, InlineStrVec>,
-    pub recent_folders: Vec<RecentFolder>,
+    recent_folders: Vec<RecentFolder>,
 }
 
 impl AppData {
@@ -54,6 +62,27 @@ impl AppData {
             table,
             recent_folders,
         })
+    }
+
+    pub fn push_recent_folder(&mut self, folder: PathBuf) -> &RecentFolder {
+        let folder = folder.into();
+        // Doing a linear search is fine as this vec is always small.
+        // We can't just use `contains()` here as we need to get a reference to the element.
+        // For some reason getting and using the index is needed to workaround the borrow checker
+        if let Some(i) = self
+            .recent_folders
+            .iter()
+            .enumerate()
+            .find_map(|(i, f)| (*f == folder).then_some(i))
+        {
+            &self.recent_folders[i]
+        } else {
+            self.recent_folders.push_mut(folder)
+        }
+    }
+
+    pub fn recent_folders(&self) -> &[RecentFolder] {
+        &self.recent_folders
     }
 
     pub fn write_recent_folders(&self) -> database::Result<()> {

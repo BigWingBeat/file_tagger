@@ -81,7 +81,7 @@ pub fn edit_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
 }
 
 pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<DatabaseState> + use<> {
-    prose(state.active_folder())
+    prose(state.active_folder().name.to_string_lossy())
         .weight(FontWeight::BOLD)
         .text_size(20.0)
         .dims(Dimensions::width(Dim::Stretch))
