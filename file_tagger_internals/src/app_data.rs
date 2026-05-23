@@ -31,6 +31,8 @@ impl From<PathBuf> for RecentFolder {
     }
 }
 
+const MAX_RECENTS: usize = 10;
+
 /// Persistent data associated with the application, such as settings and "open recent" history
 pub struct AppData {
     database: Database,
@@ -53,6 +55,7 @@ impl AppData {
             result
                 .unwrap_or_else(InlineStrVec::empty)
                 .iter()
+                .take(MAX_RECENTS)
                 .map(PathBuf::from)
                 .map(PathBuf::into)
                 .collect()
@@ -76,8 +79,14 @@ impl AppData {
             .find_map(|(i, f)| (*f == folder).then_some(i))
         {
             &self.recent_folders[i]
-        } else {
+        } else if self.recent_folders.len() < MAX_RECENTS {
             self.recent_folders.push_mut(folder)
+        } else {
+            self.recent_folders.rotate_left(1);
+            // This unwrap will never fail because of the length check above (unless `MAX_RECENTS` is 0 for some reason)
+            let most_recent = self.recent_folders.last_mut().unwrap();
+            *most_recent = folder;
+            most_recent
         }
     }
 
