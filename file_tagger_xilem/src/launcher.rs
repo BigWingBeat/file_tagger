@@ -54,7 +54,7 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
 
 pub fn launcher(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_row((
-        flex_item(crate::persistent_data::recent_list_portal(state), 0.5),
+        flex_item(crate::app_data::recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),
     ))
 }

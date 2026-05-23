@@ -4,9 +4,9 @@ use xilem::{EventLoop, WidgetView, WindowOptions, Xilem, winit::error::EventLoop
 
 use crate::view::{edit_view, launcher_view, overlay_error, search_menu_view, search_results_view};
 
+mod app_data;
 mod edit;
 mod launcher;
-mod persistent_data;
 mod search_menu;
 mod search_results;
 mod view;
