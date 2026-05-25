@@ -48,7 +48,7 @@ where
 }
 
 pub fn launcher_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    centered_box((FlexSpacer::Flex(1.0), launcher(state)))
+    centered_box((launcher(state), FlexSpacer::Flex(1.0)))
 }
 
 pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
@@ -58,8 +58,8 @@ pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use
         }),
         search_bar(state),
         import_button(state),
-        FlexSpacer::Flex(1.0),
         launcher(state),
+        FlexSpacer::Flex(1.0),
     ))
 }
 
