@@ -48,6 +48,7 @@ pub fn edit_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
             if let Some(files) = rfd::FileDialog::new()
                 .set_title("Select Files to Import")
                 .pick_files()
+                && !files.is_empty()
             {
                 state.import_files(&files)
             }
