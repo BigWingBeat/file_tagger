@@ -8,6 +8,7 @@ version.workspace = true
 [dependencies]
 file_tagger_internals = { path = "../file_tagger_internals" }
 miette.workspace = true
+rfd.workspace = true
 xilem.workspace = true
 
 [features]

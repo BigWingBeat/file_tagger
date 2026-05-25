@@ -1025,7 +1025,6 @@ dependencies = [
  "dirs",
  "fjall",
  "miette",
- "rfd",
  "scru64",
  "sled",
  "smallvec",
@@ -1038,6 +1037,7 @@ version = "0.1.0"
 dependencies = [
  "file_tagger_internals",
  "miette",
+ "rfd",
  "xilem",
 ]
 

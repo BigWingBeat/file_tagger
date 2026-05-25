@@ -32,7 +32,7 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(Length::const_px(0.0)),
                     move |state: &mut AppState| {
-                        state.open_recent(path.clone());
+                        state.open_database_in_folder(path.clone());
                     },
                 )
                 .border_width(Length::const_px(0.0))

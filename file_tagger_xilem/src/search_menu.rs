@@ -44,7 +44,14 @@ pub fn search_bar(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
 pub fn edit_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     flex_row((
         text_button("Edit Entries", |state: &mut AppState| state.edit_entries()),
-        text_button("Import Files", |state: &mut AppState| state.import_files()),
+        text_button("Import Files", |state: &mut AppState| {
+            if let Some(files) = rfd::FileDialog::new()
+                .set_title("Select Files to Import")
+                .pick_files()
+            {
+                state.import_files(&files)
+            }
+        }),
     ))
     .main_axis_alignment(MainAxisAlignment::Center)
 }

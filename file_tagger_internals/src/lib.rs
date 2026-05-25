@@ -83,26 +83,14 @@ macro_rules! set_err {
 }
 
 impl AppState {
-    pub fn open_database_in_folder(&mut self) {
-        if let Some(folder) = rfd::FileDialog::new()
-            .set_title("Open Database As Folder")
-            .pick_folder()
-        {
-            self.open_database(folder);
-        }
+    /// The user picks a folder, and a database is created or opened in that folder
+    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database(folder);
     }
 
-    pub fn create_folder_with_database(&mut self) {
-        if let Some(folder) = rfd::FileDialog::new()
-            .set_title("Create New Folder And Database")
-            .save_file()
-        {
-            std::fs::create_dir(&folder).unwrap();
-            self.open_database(folder);
-        }
-    }
-
-    pub fn open_recent(&mut self, folder: PathBuf) {
+    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
+    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
+        std::fs::create_dir(&folder).unwrap();
         self.open_database(folder);
     }
 
@@ -132,14 +120,10 @@ impl AppState {
         self.active_view = ActiveView::Edit;
     }
 
-    pub fn import_files(&mut self) {
-        if let Some(paths) = rfd::FileDialog::new()
-            .set_title("Select Files to Import")
-            .pick_files()
-        {
-            self.active_view = ActiveView::Edit;
-            // self.edit.entries = paths;
-        }
+    /// The user picks one or more files, and the editor is opened with new template entries for those files
+    pub fn import_files(&mut self, files: &[PathBuf]) {
+        self.active_view = ActiveView::Edit;
+        // self.edit.entries = paths;
     }
 
     pub fn generate_entry(&mut self) {

@@ -29,7 +29,12 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
             text_button("Open", |state: &mut AppState| {
-                state.open_database_in_folder();
+                if let Some(folder) = rfd::FileDialog::new()
+                    .set_title("Open Database As Folder")
+                    .pick_folder()
+                {
+                    state.open_database_in_folder(folder);
+                }
             })
             .dims(Dimensions::height(Dim::Stretch))
             .flex(1.0 / 3.0),
@@ -43,7 +48,12 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
             text_button("Create", |state: &mut AppState| {
-                state.create_folder_with_database();
+                if let Some(folder) = rfd::FileDialog::new()
+                    .set_title("Create New Folder And Database")
+                    .save_file()
+                {
+                    state.create_folder_with_database(folder);
+                }
             })
             .dims(Dimensions::height(Dim::Stretch))
             .flex(1.0 / 3.0),
