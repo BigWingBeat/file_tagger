@@ -3,7 +3,7 @@ use xilem::{
     masonry::{layout::Length, theme::ZYNC_600},
     palette::css::TRANSPARENT,
     style::{Padding, Style},
-    view::{FlexExt, flex_row, text_button, text_input},
+    view::{FlexExt, MainAxisAlignment, flex_row, text_button, text_input},
 };
 
 use file_tagger_internals::AppState;
@@ -41,6 +41,10 @@ pub fn search_bar(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     .corner_radius(Length::const_px(4.0))
 }
 
-pub fn import_button(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    text_button("Import Files", |state: &mut AppState| state.import_files())
+pub fn edit_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+    flex_row((
+        text_button("Edit Entries", |state: &mut AppState| state.edit_entries()),
+        text_button("Import Files", |state: &mut AppState| state.import_files()),
+    ))
+    .main_axis_alignment(MainAxisAlignment::Center)
 }

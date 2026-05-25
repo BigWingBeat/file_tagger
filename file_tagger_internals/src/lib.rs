@@ -124,6 +124,10 @@ impl AppState {
         self.active_view = ActiveView::SearchResults;
     }
 
+    pub fn edit_entries(&mut self) {
+        self.active_view = ActiveView::Edit;
+    }
+
     pub fn import_files(&mut self) {
         if let Some(paths) = rfd::FileDialog::new()
             .set_title("Select Files to Import")
@@ -132,10 +136,6 @@ impl AppState {
             self.active_view = ActiveView::Edit;
             // self.edit.entries = paths;
         }
-    }
-
-    pub fn edit_tags(&mut self) {
-        self.active_view = ActiveView::Edit;
     }
 
     pub fn generate_entry(&mut self) {

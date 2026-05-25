@@ -13,8 +13,8 @@ use xilem::{
     palette::css::RED,
     style::{Padding, Style},
     view::{
-        Flex, FlexSequence, FlexSpacer, MainAxisAlignment, ZStackSequence, flex_col, flex_row,
-        prose, text_button, zstack,
+        Flex, FlexExt, FlexSequence, FlexSpacer, MainAxisAlignment, ZStackSequence, flex_col,
+        flex_row, prose, text_button, zstack,
     },
 };
 
@@ -23,7 +23,7 @@ use file_tagger_internals::{AppState, DatabaseState};
 use crate::{
     edit::edit,
     launcher::launcher,
-    search_menu::{import_button, search_bar},
+    search_menu::{edit_buttons, search_bar},
     search_results::search_results,
 };
 
@@ -57,7 +57,7 @@ pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use
             &mut state.database
         }),
         search_bar(state),
-        import_button(state),
+        edit_buttons(state),
         launcher(state),
         FlexSpacer::Flex(1.0),
     ))
@@ -69,10 +69,11 @@ pub fn search_results_view(state: &mut AppState) -> impl WidgetView<AppState> + 
             &mut state.database
         }),
         search_bar(state),
-        import_button(state),
+        edit_buttons(state),
         lens(search_results, |state: &mut AppState| {
             &mut state.search_results
-        }),
+        })
+        .flex(1.0),
     ))
 }
 
