@@ -35,12 +35,14 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
         )),
         prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
         // Intersection of tags applied to all selected entries
-        flex_col(FlexSpacer::Flex(1.0))
+        flex_col((FlexSpacer::Flex(1.0),))
             .border(ZYNC_600, Length::const_px(1.0))
             .corner_radius(Length::const_px(4.0)),
         flex_row((
             FlexSpacer::Flex(1.0),
             text_button("Save Changes", |state: &mut AppState| {}),
+            text_button("Cancel", |state: &mut AppState| state.search_menu()),
         )),
     ))
+    .padding(Length::const_px(10.0))
 }

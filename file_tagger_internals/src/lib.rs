@@ -23,7 +23,7 @@ pub enum ActiveView {
     SearchMenu,
     /// Grid of search results, plus a search bar, and button to go back to `SearchMenu`
     SearchResults,
-    /// Edit tags of entries
+    /// Edit tags of entries, and create new entries (tags) to use
     Edit,
 }
 
@@ -88,7 +88,7 @@ impl AppState {
             .set_title("Open Database As Folder")
             .pick_folder()
         {
-            self.search_menu(folder);
+            self.open_database(folder);
         }
     }
 
@@ -98,15 +98,15 @@ impl AppState {
             .save_file()
         {
             std::fs::create_dir(&folder).unwrap();
-            self.search_menu(folder);
+            self.open_database(folder);
         }
     }
 
     pub fn open_recent(&mut self, folder: PathBuf) {
-        self.search_menu(folder);
+        self.open_database(folder);
     }
 
-    pub fn search_menu(&mut self, folder: PathBuf) {
+    fn open_database(&mut self, folder: PathBuf) {
         if self.database.active_folder().path == folder {
             return;
         }
@@ -117,6 +117,10 @@ impl AppState {
             self,
             self.persistent.write_recent_folders().into_diagnostic()
         );
+        self.active_view = ActiveView::SearchMenu;
+    }
+
+    pub fn search_menu(&mut self) {
         self.active_view = ActiveView::SearchMenu;
     }
 
