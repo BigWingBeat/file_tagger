@@ -91,7 +91,7 @@ pub fn search_results_view(state: &mut XilemAppState) -> impl WidgetView<XilemAp
     ))
 }
 
-pub fn edit_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn edit_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
     edit(state)
 }
 

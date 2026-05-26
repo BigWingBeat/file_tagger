@@ -9,11 +9,15 @@ use xilem::{
     winit::error::EventLoopError,
 };
 
-use crate::view::{
-    edit_view, error_view, launcher_view, search_menu_view, search_results_view, spinner_view,
+use crate::{
+    assets::Assets,
+    view::{
+        edit_view, error_view, launcher_view, search_menu_view, search_results_view, spinner_view,
+    },
 };
 
 mod app_data;
+mod assets;
 mod edit;
 mod launcher;
 mod search_menu;
@@ -26,6 +30,7 @@ type AnyTaskView<State, Action = ()> = dyn AnyView<State, Action, ViewCtx, NoEle
 /// State wrapper so we can store xilem-specific state
 struct XilemAppState {
     state: AppState,
+    assets: Assets,
     pending_task: Option<Box<dyn Fn(&mut AppState) -> Box<AnyTaskView<AppState>>>>,
 }
 
@@ -43,7 +48,18 @@ impl DerefMut for XilemAppState {
     }
 }
 
+// TODO: 1.0.px()
 impl XilemAppState {
+    fn new() -> miette::Result<Self> {
+        let state = AppState::new()?;
+        let assets = Assets::new().into_diagnostic()?;
+        Ok(Self {
+            state,
+            assets,
+            pending_task: None,
+        })
+    }
+
     fn app_logic(&mut self) -> impl WidgetView<XilemAppState> + use<> {
         let view = match self.active_view {
             ActiveView::Launcher => launcher_view(self).boxed(),
@@ -76,16 +92,9 @@ impl XilemAppState {
         self.pending_task = Some(Box::new(move |state| Box::new(view(state))));
     }
 
-    fn run_app(state: AppState) -> Result<(), EventLoopError> {
-        Xilem::new_simple(
-            Self {
-                state,
-                pending_task: None,
-            },
-            Self::app_logic,
-            WindowOptions::new("File Tagger"),
-        )
-        .run_in(EventLoop::with_user_event())
+    fn run_app(self) -> Result<(), EventLoopError> {
+        Xilem::new_simple(self, Self::app_logic, WindowOptions::new("File Tagger"))
+            .run_in(EventLoop::with_user_event())
     }
 }
 
@@ -130,7 +139,7 @@ fn set_error_handler() {
 
 fn main() -> miette::Result<()> {
     set_error_handler();
-    AppState::new()
+    XilemAppState::new()
         .map_or_else(FuckedState::run_app, XilemAppState::run_app)
         .into_diagnostic()
 }

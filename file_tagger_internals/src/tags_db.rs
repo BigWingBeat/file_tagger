@@ -1,4 +1,5 @@
 use std::{
+    fmt::{Display, Formatter},
     path::{Path, PathBuf},
     str::Utf8Error,
 };
@@ -133,12 +134,19 @@ impl TagsDatabase {
 /// Value is stored in big-endian form for correct lexicographic ordering.
 /// Used for non-tag entries
 #[repr(transparent)]
+#[derive(Debug)]
 pub struct Entry(Scru64Id);
 
 impl AsBytes for Entry {
     type Bytes = [u8; 8];
     fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
         Bytes::Owned(self.0.to_u64().to_be_bytes())
+    }
+}
+
+impl Display for Entry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
