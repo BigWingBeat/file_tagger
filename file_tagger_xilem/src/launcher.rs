@@ -6,18 +6,20 @@ use xilem::{
     },
     style::Style,
     view::{
-        CrossAxisAlignment, FlexExt, MainAxisAlignment, flex_col, flex_item, flex_row, prose,
+        CrossAxisAlignment, FlexExt, MainAxisAlignment, flex_col, flex_item, flex_row, prose, task,
         text_button,
     },
 };
 
-use file_tagger_internals::AppState;
+use file_tagger_internals::{ActiveOverlay, AppState};
+
+use crate::{XilemAppState, app_data::recent_list_portal};
 
 /// The "open" button selects an existing folder and either creates a new database in that folder, or opens a database
 /// that already exists there.
 /// The "create" button selects a folder, and creates a *new* empty folder there, with a specified name, as well as
 /// creating a new database in the new folder.
-fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+fn open_create_buttons(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     // These buttons should be the same width and height
     flex_col((
         flex_row((
@@ -28,13 +30,24 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
-            text_button("Open", |state: &mut AppState| {
-                if let Some(folder) = rfd::FileDialog::new()
-                    .set_title("Open Database As Folder")
-                    .pick_folder()
-                {
-                    state.open_database_in_folder(folder);
-                }
+            text_button("Open", |state: &mut XilemAppState| {
+                state.run_task(|_| {
+                    task(
+                        |proxy, _| async move {
+                            let result = rfd::AsyncFileDialog::new()
+                                .set_title("Open Database As Folder")
+                                .pick_folder()
+                                .await;
+                            proxy.message(result);
+                        },
+                        |state: &mut AppState, result| {
+                            state.active_overlay = ActiveOverlay::None;
+                            if let Some(folder) = result {
+                                state.open_database_in_folder(folder.into());
+                            }
+                        },
+                    )
+                });
             })
             .dims(Dimensions::height(Dim::Stretch))
             .flex(1.0 / 3.0),
@@ -47,13 +60,24 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
-            text_button("Create", |state: &mut AppState| {
-                if let Some(folder) = rfd::FileDialog::new()
-                    .set_title("Create New Folder And Database")
-                    .save_file()
-                {
-                    state.create_folder_with_database(folder);
-                }
+            text_button("Create", |state: &mut XilemAppState| {
+                state.run_task(|_| {
+                    task(
+                        |proxy, _| async move {
+                            let result = rfd::AsyncFileDialog::new()
+                                .set_title("Create New Folder And Database")
+                                .save_file()
+                                .await;
+                            proxy.message(result);
+                        },
+                        |state: &mut AppState, result| {
+                            state.active_overlay = ActiveOverlay::None;
+                            if let Some(folder) = result {
+                                state.create_folder_with_database(folder.into());
+                            }
+                        },
+                    )
+                });
             })
             .dims(Dimensions::height(Dim::Stretch))
             .flex(1.0 / 3.0),
@@ -62,9 +86,9 @@ fn open_create_buttons(state: &mut AppState) -> impl WidgetView<AppState> + use<
     .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
 }
 
-pub fn launcher(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn launcher(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     flex_row((
-        flex_item(crate::app_data::recent_list_portal(state), 0.5),
+        flex_item(recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),
     ))
 }

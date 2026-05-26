@@ -1,31 +1,34 @@
 //! Functions that define all the top-level views and handle state lensing
-use std::fmt::Debug;
+use std::{fmt::Debug, ops::DerefMut};
 
 use xilem::{
     FontWeight, WidgetView,
-    core::lens,
+    core::{fork, lens, map_state},
     masonry::{
         layout::{Dim, Length},
         parley::GenericFamily,
         properties::Dimensions,
-        theme::{ZYNC_700, ZYNC_800, ZYNC_900},
+        theme::{ZYNC_600, ZYNC_700, ZYNC_800, ZYNC_900},
     },
     palette::css::RED,
     style::{Padding, Style},
     view::{
-        Flex, FlexExt, FlexSequence, FlexSpacer, MainAxisAlignment, ZStackSequence, flex_col,
-        flex_row, prose, text_button, zstack,
+        Flex, FlexExt, FlexSequence, FlexSpacer, MainAxisAlignment, flex_col, flex_row, prose,
+        spinner, text_button,
     },
 };
 
-use file_tagger_internals::{AppState, DatabaseState};
+use file_tagger_internals::DatabaseState;
 
 use crate::{
+    XilemAppState,
     edit::edit,
     launcher::launcher,
     search_menu::{edit_buttons, search_bar},
     search_results::search_results,
 };
+
+// Main views
 
 pub fn centered_box<Seq, State>(seq: Seq) -> impl WidgetView<State> + use<Seq, State>
 where
@@ -47,13 +50,13 @@ where
     .background_color(ZYNC_900)
 }
 
-pub fn launcher_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn launcher_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     centered_box((launcher(state), FlexSpacer::Flex(1.0)))
 }
 
-pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn search_menu_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     centered_box((
-        lens(active_folder_name, |state: &mut AppState| {
+        lens(active_folder_name, |state: &mut XilemAppState| {
             &mut state.database
         }),
         search_bar(state),
@@ -63,21 +66,21 @@ pub fn search_menu_view(state: &mut AppState) -> impl WidgetView<AppState> + use
     ))
 }
 
-pub fn search_results_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn search_results_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     centered_box((
-        lens(active_folder_name, |state: &mut AppState| {
+        lens(active_folder_name, |state: &mut XilemAppState| {
             &mut state.database
         }),
         search_bar(state),
         edit_buttons(state),
-        lens(search_results, |state: &mut AppState| {
+        lens(search_results, |state: &mut XilemAppState| {
             &mut state.search_results
         })
         .flex(1.0),
     ))
 }
 
-pub fn edit_view(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn edit_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     edit(state)
 }
 
@@ -88,39 +91,54 @@ pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<Database
         .dims(Dimensions::width(Dim::Stretch))
 }
 
-pub fn overlay_error<Seq, State, E, F>(
-    seq: Seq,
-    e: Option<&E>,
-    callback: F,
-) -> impl WidgetView<State> + use<Seq, State, E, F>
+// Overlay views
+
+pub fn centered_flex_box<Seq, State>(seq: Seq) -> impl WidgetView<State> + use<Seq, State>
+where
+    State: 'static,
+    Seq: FlexSequence<State>,
+    Flex<Seq, State>: WidgetView<State>,
+    <Flex<Seq, State> as WidgetView<State>>::Widget: Sized,
+{
+    // Center the inner `flex_col`
+    flex_row(
+        // Centered and dynamic size
+        flex_col(seq)
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .background_color(ZYNC_700)
+            .border(ZYNC_600, Length::const_px(3.0))
+            .corner_radius(Length::const_px(6.0))
+            .padding(Padding::all(Length::const_px(16.0)))
+            .dims(Dimensions::height(Dim::MinContent)),
+    )
+    .main_axis_alignment(MainAxisAlignment::Center)
+}
+
+pub fn error_view<State, E, F>(e: &E, callback: F) -> impl WidgetView<State> + use<State, E, F>
 where
     F: Fn(&mut State) + Send + Sync + 'static,
     E: Debug + 'static,
     State: 'static,
-    Seq: ZStackSequence<State> + Send + Sync,
-    Flex<Seq, State>: WidgetView<State>,
-    <Flex<Seq, State> as WidgetView<State>>::Widget: Sized,
 {
-    zstack((
-        seq,
-        e.map(|e| {
-            flex_row(
-                flex_col((
-                    prose(format!("{e:?}"))
-                        .font(GenericFamily::Monospace)
-                        .weight(FontWeight::BOLD)
-                        .text_size(20.0)
-                        .text_color(RED),
-                    text_button("Oops", callback),
-                ))
-                .main_axis_alignment(xilem::view::MainAxisAlignment::Center)
-                .background_color(ZYNC_700)
-                .border(ZYNC_800, Length::const_px(2.0))
-                .corner_radius(Length::const_px(6.0))
-                .padding(Padding::all(Length::const_px(16.0)))
-                .dims(Dimensions::height(Dim::MinContent)),
-            )
-            .main_axis_alignment(xilem::view::MainAxisAlignment::Center)
-        }),
+    centered_flex_box((
+        prose(format!("{e:?}"))
+            .font(GenericFamily::Monospace)
+            .weight(FontWeight::BOLD)
+            .text_size(20.0)
+            .text_color(RED),
+        text_button("Oops", callback),
+    ))
+}
+
+pub fn spinner_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+    centered_flex_box(fork(
+        flex_col((
+            spinner().dims(Length::const_px(40.0)),
+            prose("Waiting for dialog..."),
+        )),
+        state
+            .pending_task
+            .as_ref()
+            .map(|task_view| map_state(task_view(&mut state.state), DerefMut::deref_mut)),
     ))
 }

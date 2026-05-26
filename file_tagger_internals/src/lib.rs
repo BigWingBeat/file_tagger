@@ -13,7 +13,7 @@ pub use crate::{
 
 const FOLDER_NAME: &str = ".file_tagger";
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum ActiveView {
     /// No database is open. Buttons for opening/creating a database
     #[default]
@@ -25,6 +25,17 @@ pub enum ActiveView {
     SearchResults,
     /// Edit tags of entries, and create new entries (tags) to use
     Edit,
+}
+
+#[derive(Default)]
+pub enum ActiveOverlay {
+    /// No overlay is being displayed
+    #[default]
+    None,
+    /// An error is being displayed
+    Error(Report),
+    /// Waiting for something to happen on another thread (e.g. async)
+    Spinner,
 }
 
 #[derive(Default)]
@@ -61,12 +72,12 @@ impl EditState {
 
 pub struct AppState {
     pub active_view: ActiveView,
+    pub active_overlay: ActiveOverlay,
     pub search_menu: SearchBarState,
     pub search_results: SearchResultsState,
     pub database: DatabaseState,
     pub persistent: AppData,
     pub edit: EditState,
-    pub latest_error: Option<Report>,
 }
 
 macro_rules! set_err {
@@ -75,7 +86,7 @@ macro_rules! set_err {
         match result {
             Ok(ok) => ok,
             Err(e) => {
-                $this.latest_error = Some(e);
+                $this.active_overlay = ActiveOverlay::Error(e);
                 return;
             }
         }
@@ -141,12 +152,12 @@ impl AppState {
         let persistent = AppData::open()?;
         Ok(Self {
             active_view: Default::default(),
+            active_overlay: Default::default(),
             search_menu: Default::default(),
             search_results: Default::default(),
             database,
             persistent,
             edit: Default::default(),
-            latest_error: None,
         })
     }
 }

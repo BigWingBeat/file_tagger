@@ -5,9 +5,9 @@ use xilem::{
     view::{FlexSpacer, flex_col, flex_row, prose, text_button},
 };
 
-use file_tagger_internals::AppState;
+use crate::XilemAppState;
 
-pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     flex_col((
         // Display thumbnails of entries being edited, entries can be selected
         flex_row(
@@ -25,7 +25,7 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
         flex_row((
             FlexSpacer::Flex(1.0),
             // New empty entry, prefilled with tag metatags
-            text_button("＋ Create Tag", |state: &mut AppState| {
+            text_button("＋ Create Tag", |state: &mut XilemAppState| {
                 state.generate_entry();
             }),
             // Open search menu to select existing entries
@@ -40,8 +40,8 @@ pub fn edit(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
             .corner_radius(Length::const_px(4.0)),
         flex_row((
             FlexSpacer::Flex(1.0),
-            text_button("Save Changes", |state: &mut AppState| {}),
-            text_button("Cancel", |state: &mut AppState| state.search_menu()),
+            text_button("Save Changes", |state: &mut XilemAppState| {}),
+            text_button("Cancel", |state: &mut XilemAppState| state.search_menu()),
         )),
     ))
     .padding(Length::const_px(10.0))

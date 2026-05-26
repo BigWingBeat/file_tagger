@@ -1,8 +1,17 @@
-use file_tagger_internals::{ActiveView, AppState};
-use miette::{IntoDiagnostic, MietteHandlerOpts};
-use xilem::{EventLoop, WidgetView, WindowOptions, Xilem, winit::error::EventLoopError};
+use std::ops::{Deref, DerefMut};
 
-use crate::view::{edit_view, launcher_view, overlay_error, search_menu_view, search_results_view};
+use file_tagger_internals::{ActiveOverlay, ActiveView, AppState};
+use miette::{IntoDiagnostic, MietteHandlerOpts};
+use xilem::{
+    EventLoop, ViewCtx, WidgetView, WindowOptions, Xilem,
+    core::{AnyView, NoElement, View, one_of::Either},
+    view::zstack,
+    winit::error::EventLoopError,
+};
+
+use crate::view::{
+    edit_view, error_view, launcher_view, search_menu_view, search_results_view, spinner_view,
+};
 
 mod app_data;
 mod edit;
@@ -11,29 +20,80 @@ mod search_menu;
 mod search_results;
 mod view;
 
-fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
-    let view = match state.active_view {
-        ActiveView::Launcher => launcher_view(state).boxed(),
-        ActiveView::SearchMenu => search_menu_view(state).boxed(),
-        ActiveView::SearchResults => search_results_view(state).boxed(),
-        ActiveView::Edit => edit_view(state).boxed(),
-    };
-    let error = state.latest_error.as_ref();
-    overlay_error(view, error, |state| {
-        state.latest_error = None;
-    })
+/// The `alongside_view` for `fork` requires the element type to be `NoElement`, but `AnyWidgetView` forces it to be `Pod<Passthrough>`
+type AnyTaskView<State, Action = ()> = dyn AnyView<State, Action, ViewCtx, NoElement> + Send + Sync;
+
+/// State wrapper so we can store xilem-specific state
+struct XilemAppState {
+    state: AppState,
+    pending_task: Option<Box<dyn Fn(&mut AppState) -> Box<AnyTaskView<AppState>>>>,
 }
 
-fn run_app(state: AppState) -> Result<(), EventLoopError> {
-    Xilem::new_simple(state, app_logic, WindowOptions::new("File Tagger"))
+impl Deref for XilemAppState {
+    type Target = AppState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl DerefMut for XilemAppState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
+impl XilemAppState {
+    fn app_logic(&mut self) -> impl WidgetView<XilemAppState> + use<> {
+        let view = match self.active_view {
+            ActiveView::Launcher => launcher_view(self).boxed(),
+            ActiveView::SearchMenu => search_menu_view(self).boxed(),
+            ActiveView::SearchResults => search_results_view(self).boxed(),
+            ActiveView::Edit => edit_view(self).boxed(),
+        };
+
+        if let Some(overlay) = match &self.active_overlay {
+            ActiveOverlay::None => None,
+            ActiveOverlay::Error(report) => Some(
+                error_view(report, |state: &mut XilemAppState| {
+                    state.active_overlay = ActiveOverlay::None;
+                })
+                .boxed(),
+            ),
+            ActiveOverlay::Spinner => Some(spinner_view(self).boxed()),
+        } {
+            Either::A(zstack((view, overlay)))
+        } else {
+            Either::B(view)
+        }
+    }
+
+    fn run_task<V>(&mut self, view: impl Fn(&mut AppState) -> V + 'static)
+    where
+        V: View<AppState, (), ViewCtx, Element = NoElement> + Send + Sync,
+    {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.pending_task = Some(Box::new(move |state| Box::new(view(state))));
+    }
+
+    fn run_app(state: AppState) -> Result<(), EventLoopError> {
+        Xilem::new_simple(
+            Self {
+                state,
+                pending_task: None,
+            },
+            Self::app_logic,
+            WindowOptions::new("File Tagger"),
+        )
         .run_in(EventLoop::with_user_event())
+    }
 }
 
 struct FuckedState(miette::Report);
 
 impl FuckedState {
     fn app_logic(&mut self) -> impl WidgetView<Self> + use<> {
-        overlay_error((), Some(&self.0), |_| std::process::exit(1))
+        error_view(&self.0, |_| std::process::exit(1))
     }
 
     fn run_app(error: miette::Report) -> Result<(), EventLoopError> {
@@ -71,6 +131,6 @@ fn set_error_handler() {
 fn main() -> miette::Result<()> {
     set_error_handler();
     AppState::new()
-        .map_or_else(FuckedState::run_app, run_app)
+        .map_or_else(FuckedState::run_app, XilemAppState::run_app)
         .into_diagnostic()
 }

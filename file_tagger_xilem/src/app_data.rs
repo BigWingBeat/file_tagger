@@ -8,9 +8,9 @@ use xilem::{
     view::{CrossAxisAlignment, button, flex_col, portal, prose},
 };
 
-use file_tagger_internals::AppState;
+use crate::XilemAppState;
 
-pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn recent_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
     // Instead, they are always as wide as possible
     flex_col(
@@ -31,7 +31,7 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(Length::const_px(0.0)),
-                    move |state: &mut AppState| {
+                    move |state: &mut XilemAppState| {
                         state.open_database_in_folder(path.clone());
                     },
                 )
@@ -43,7 +43,7 @@ pub fn recent_list(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     .dims(Dimensions::width(Dim::Stretch))
 }
 
-pub fn recent_list_portal(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
+pub fn recent_list_portal(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     flex_col((
         prose("Open Recent")
             .weight(FontWeight::BOLD)
