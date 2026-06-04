@@ -48,7 +48,6 @@ impl DerefMut for XilemAppState {
     }
 }
 
-// TODO: 1.0.px()
 impl XilemAppState {
     fn new() -> miette::Result<Self> {
         let state = AppState::new()?;

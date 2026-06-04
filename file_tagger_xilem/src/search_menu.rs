@@ -1,6 +1,6 @@
 use xilem::{
     WidgetView,
-    masonry::{layout::Length, theme::ZYNC_600},
+    masonry::{layout::AsUnit, theme::ZYNC_600},
     palette::css::TRANSPARENT,
     style::{Padding, Style},
     view::{FlexExt, MainAxisAlignment, flex_row, task, text_button, text_input},
@@ -20,27 +20,27 @@ pub fn search_bar(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> +
         )
         .on_enter(|state: &mut XilemAppState, _| state.search_results())
         .placeholder("Search database by tag")
-        .border_width(Length::const_px(0.0))
+        .border_width(0.px())
         .background(TRANSPARENT)
         .flex(1.0),
         text_button("🔍", |state: &mut XilemAppState| state.search_results())
-            .corner_radius(Length::const_px(f64::MAX)) // circle
-            .border_width(Length::const_px(0.0))
+            .corner_radius(f64::MAX.px()) // circle
+            .border_width(0.px())
             // Manually tuned padding to make it look centered and circular
             .padding(Padding {
-                top: Length::const_px(5.0),
-                ..Padding::horizontal(Length::const_px(8.5))
+                top: 5.px(),
+                ..Padding::horizontal(8.px())
             }),
     ))
-    .gap(Length::const_px(1.0))
+    .gap(1.px())
     // The text input has its own padding, this is just for the button
     .padding(Padding {
-        right: Length::const_px(12.0),
-        ..Padding::vertical(Length::const_px(2.0))
+        right: 12.px(),
+        ..Padding::vertical(2.px())
     })
     // Border and corner radius the same as the text input
-    .border(ZYNC_600, Length::const_px(1.0))
-    .corner_radius(Length::const_px(4.0))
+    .border(ZYNC_600, 1.px())
+    .corner_radius(4.px())
 }
 
 pub fn edit_buttons(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {

@@ -2,7 +2,7 @@ use file_tagger_internals::EditEntry;
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
-        layout::{Dim, Length},
+        layout::{AsUnit, Dim},
         properties::Dimensions,
         theme::{ZYNC_600, ZYNC_700, ZYNC_800},
     },
@@ -19,15 +19,15 @@ container_view! {
     fn tile(seq: Seq) {
         flex_col(seq)
             .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
-            .dims(Length::const_px(200.0))
+            .dims(200.px())
             .background_color(ZYNC_800)
-            .corner_radius(Length::const_px(4.0))
+            .corner_radius(4.px())
     }
 }
 
 /// Ways of adding more entries to be edited
 fn add_more_buttons() -> impl FlexSequence<XilemAppState> {
-    let width = Length::const_px(175.0);
+    let width = 175.px();
     (
         // Open search menu to select existing entries
         text_button("＋ Add From Search", |_| {}).dims(Dimensions::width(Dim::Fixed(width))),
@@ -60,11 +60,11 @@ fn entry_tile((index, entry): (usize, &EditEntry)) -> impl WidgetView<XilemAppSt
 fn placeholder_tile(state: &XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     tile(
         flex_col((
-            svg(state.assets.tag.clone()).dims(Length::const_px(48.0)),
+            svg(state.assets.tag.clone()).dims(48.px()),
             add_more_buttons(),
         ))
         .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
-        .padding(Length::const_px(2.0)),
+        .padding(2.px()),
     )
 }
 
@@ -82,9 +82,9 @@ fn entry_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use
                     .collect::<Vec<_>>(),
                 placeholder_tile(state),
             ))
-            .padding(Length::const_px(12.0))
-            .border(ZYNC_600, Length::const_px(1.0))
-            .corner_radius(Length::const_px(4.0)),
+            .padding(12.px())
+            .border(ZYNC_600, 1.px())
+            .corner_radius(4.px()),
         )
         .constrain_vertical(true)
         .must_fill(true),
@@ -96,9 +96,9 @@ fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
     flex_col((
         prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
         // Intersection of tags applied to all selected entries
-        flex_col((FlexSpacer::Fixed(Length::const_px(200.0)),))
-            .border(ZYNC_600, Length::const_px(1.0))
-            .corner_radius(Length::const_px(4.0)),
+        flex_col((FlexSpacer::Fixed(200.px()),))
+            .border(ZYNC_600, 1.px())
+            .corner_radius(4.px()),
         flex_row((
             FlexSpacer::Flex(1.0),
             text_button("Save Changes", |state: &mut XilemAppState| {}),
@@ -108,5 +108,5 @@ fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
 }
 
 pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
-    flex_col((entry_list(state), tag_list(state))).padding(Length::const_px(10.0))
+    flex_col((entry_list(state), tag_list(state))).padding(10.px())
 }

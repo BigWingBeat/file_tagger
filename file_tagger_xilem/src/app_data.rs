@@ -1,7 +1,7 @@
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
-        layout::{Dim, Length},
+        layout::{AsUnit, Dim},
         properties::{Dimensions, LineBreaking},
     },
     style::Style,
@@ -30,16 +30,16 @@ pub fn recent_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> 
                         prose(path.to_string_lossy()).line_break_mode(LineBreaking::WordWrap),
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
-                    .gap(Length::const_px(0.0)),
+                    .gap(0.px()),
                     move |state: &mut XilemAppState| {
                         state.open_database_in_folder(path.clone());
                     },
                 )
-                .border_width(Length::const_px(0.0))
+                .border_width(0.px())
             })
             .collect::<Vec<_>>(),
     )
-    .gap(Length::const_px(1.0))
+    .gap(1.px())
     .dims(Dimensions::width(Dim::Stretch))
 }
 

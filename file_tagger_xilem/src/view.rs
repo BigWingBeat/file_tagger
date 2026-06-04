@@ -5,7 +5,7 @@ use xilem::{
     FontWeight, WidgetView,
     core::{fork, lens, map_state},
     masonry::{
-        layout::{Dim, Length},
+        layout::{AsUnit, Dim},
         parley::GenericFamily,
         properties::Dimensions,
         theme::{ZYNC_600, ZYNC_700, ZYNC_800, ZYNC_900},
@@ -52,8 +52,8 @@ container_view! {
             // Centered and fixed size
             flex_col(seq)
                 .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .dims((Length::const_px(1000.0), Length::const_px(375.0)))
-                .padding(Length::const_px(10.0))
+                .dims((1000.px(), 375.px()))
+                .padding(10.px())
                 .background_color(ZYNC_800),
         )
         .main_axis_alignment(MainAxisAlignment::Center)
@@ -112,9 +112,9 @@ container_view! {
             flex_col(seq)
                 .main_axis_alignment(MainAxisAlignment::Center)
                 .background_color(ZYNC_700)
-                .border(ZYNC_600, Length::const_px(3.0))
-                .corner_radius(Length::const_px(6.0))
-                .padding(Padding::all(Length::const_px(16.0)))
+                .border(ZYNC_600, 3.px())
+                .corner_radius(6.px())
+                .padding(Padding::all(16.px()))
                 .dims(Dimensions::height(Dim::MinContent)),
         )
         .main_axis_alignment(MainAxisAlignment::Center)
@@ -139,10 +139,7 @@ where
 
 pub fn spinner_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
     centered_flex_box(fork(
-        flex_col((
-            spinner().dims(Length::const_px(40.0)),
-            prose("Waiting for dialog..."),
-        )),
+        flex_col((spinner().dims(40.px()), prose("Waiting for dialog..."))),
         state
             .pending_task
             .as_ref()
