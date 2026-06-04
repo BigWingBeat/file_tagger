@@ -8,7 +8,8 @@ use xilem::{
     },
     style::Style,
     view::{
-        FlexSpacer, MainAxisAlignment, button, flex_col, flex_row, portal, prose, svg, text_button,
+        FlexSequence, FlexSpacer, MainAxisAlignment, button, flex_col, flex_row, portal, prose,
+        svg, text_button,
     },
 };
 
@@ -24,7 +25,23 @@ container_view! {
     }
 }
 
-fn entry_tile(index: usize, entry: &EditEntry) -> impl WidgetView<XilemAppState> {
+/// Ways of adding more entries to be edited
+fn add_more_buttons() -> impl FlexSequence<XilemAppState> {
+    let width = Length::const_px(175.0);
+    (
+        // Open search menu to select existing entries
+        text_button("＋ Add From Search", |_| {}).dims(Dimensions::width(Dim::Fixed(width))),
+        // New empty entry, prefilled with tag metatags
+        text_button("＋ Create Tag", |state: &mut XilemAppState| {
+            state.generate_entry();
+        })
+        .dims(Dimensions::width(Dim::Fixed(width))),
+        // Open file picker, prefill with appropriate tags from file metadata
+        text_button("＋ Import Files", |_| {}).dims(Dimensions::width(Dim::Fixed(width))),
+    )
+}
+
+fn entry_tile((index, entry): (usize, &EditEntry)) -> impl WidgetView<XilemAppState> + use<> {
     tile(
         button(
             flex_col((
@@ -40,27 +57,20 @@ fn entry_tile(index: usize, entry: &EditEntry) -> impl WidgetView<XilemAppState>
     )
 }
 
-fn placeholder_tile(state: &XilemAppState) -> impl WidgetView<XilemAppState> {
+fn placeholder_tile(state: &XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     tile(
         flex_col((
             svg(state.assets.tag.clone()).dims(Length::const_px(48.0)),
-            // New empty entry, prefilled with tag metatags
-            text_button("＋ Create Tag", |state: &mut XilemAppState| {
-                state.generate_entry();
-            }),
-            // Open search menu to select existing entries
-            text_button("＋ Add From Search", |_| {}),
-            // Open file picker, prefill with appropriate tags from file metadata
-            text_button("＋ Import Files", |_| {}),
+            add_more_buttons(),
         ))
         .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
         .padding(Length::const_px(2.0)),
     )
 }
 
-pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+fn entry_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+    // Display thumbnails of entries being edited, entries can be selected
     flex_col((
-        // Display thumbnails of entries being edited, entries can be selected
         portal(
             flex_row((
                 state
@@ -68,7 +78,7 @@ pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
                     .entries()
                     .iter()
                     .enumerate()
-                    .map(|(i, entry)| entry_tile(i, entry))
+                    .map(entry_tile)
                     .collect::<Vec<_>>(),
                 placeholder_tile(state),
             ))
@@ -76,19 +86,14 @@ pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
             .border(ZYNC_600, Length::const_px(1.0))
             .corner_radius(Length::const_px(4.0)),
         )
-        .constrain_vertical(true),
-        // Ways of adding more entries to be edited
-        flex_row((
-            FlexSpacer::Flex(1.0),
-            // New empty entry, prefilled with tag metatags
-            text_button("＋ Create Tag", |state: &mut XilemAppState| {
-                state.generate_entry();
-            }),
-            // Open search menu to select existing entries
-            text_button("＋ Add From Search", |_| {}),
-            // Open file picker, prefill with appropriate tags from file metadata
-            text_button("＋ Import Files", |_| {}),
-        )),
+        .constrain_vertical(true)
+        .must_fill(true),
+        flex_row((FlexSpacer::Flex(1.0), add_more_buttons())),
+    ))
+}
+
+fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+    flex_col((
         prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
         // Intersection of tags applied to all selected entries
         flex_col((FlexSpacer::Fixed(Length::const_px(200.0)),))
@@ -100,5 +105,8 @@ pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
             text_button("Cancel", |state: &mut XilemAppState| state.search_menu()),
         )),
     ))
-    .padding(Length::const_px(10.0))
+}
+
+pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+    flex_col((entry_list(state), tag_list(state))).padding(Length::const_px(10.0))
 }
