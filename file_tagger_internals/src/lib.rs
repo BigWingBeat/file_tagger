@@ -70,6 +70,10 @@ impl EditState {
         &self.entries
     }
 
+    pub fn clear_entries(&mut self) {
+        self.entries.clear();
+    }
+
     pub fn toggle_entry_selected(&mut self, index: usize) {
         if let Some(entry) = self.entries.get_mut(index) {
             entry.selected = !entry.selected;
@@ -136,11 +140,13 @@ impl AppState {
 
     pub fn edit_entries(&mut self) {
         self.active_view = ActiveView::Edit;
+        self.edit.clear_entries();
     }
 
     /// The user picks one or more files, and the editor is opened with new template entries for those files
     pub fn import_files(&mut self, files: &[PathBuf]) {
         self.active_view = ActiveView::Edit;
+        self.edit.clear_entries();
         // self.edit.entries = paths;
     }
 
