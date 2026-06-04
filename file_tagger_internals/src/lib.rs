@@ -46,6 +46,7 @@ pub struct SearchBarState {
 pub struct EditEntry {
     pub id: Entry,
     pub name: String,
+    pub selected: bool,
 }
 
 #[derive(Default)]
@@ -67,6 +68,12 @@ pub struct EditState {
 impl EditState {
     pub fn entries(&self) -> &[EditEntry] {
         &self.entries
+    }
+
+    pub fn toggle_entry_selected(&mut self, index: usize) {
+        if let Some(entry) = self.entries.get_mut(index) {
+            entry.selected = !entry.selected;
+        }
     }
 }
 
@@ -142,6 +149,7 @@ impl AppState {
         self.edit.entries.push(EditEntry {
             id,
             name: String::new(),
+            selected: true,
         });
     }
 }
