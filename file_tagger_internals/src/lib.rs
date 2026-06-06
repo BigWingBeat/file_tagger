@@ -63,6 +63,7 @@ impl SearchResultsState {
 #[derive(Default)]
 pub struct EditState {
     entries: Vec<EditEntry>,
+    pub tag_search_bar_state: String,
 }
 
 impl EditState {

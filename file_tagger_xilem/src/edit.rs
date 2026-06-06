@@ -9,11 +9,14 @@ use xilem::{
     style::Style,
     view::{
         FlexSequence, FlexSpacer, MainAxisAlignment, button, flex_col, flex_row, portal, prose,
-        svg, text_button,
+        svg, text_button, text_input,
     },
 };
 
-use crate::{XilemAppState, view::container_view};
+use crate::{
+    XilemAppState,
+    view::{container_view, search_input},
+};
 
 container_view! {
     fn tile(seq: Seq) {
@@ -92,9 +95,26 @@ fn entry_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use
     ))
 }
 
+fn tag_search_bar(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+    // TODO: Autocomplete for tags?
+    search_input(
+        text_input(
+            state.edit.tag_search_bar_state.clone(),
+            |state: &mut XilemAppState, text| state.edit.tag_search_bar_state = text,
+        )
+        .on_enter(|state: &mut XilemAppState, _| {})
+        .placeholder("Search For Tags"),
+        text_button("＋", |state: &mut XilemAppState| {}),
+        Dimensions::width(Dim::Fixed(512.px())),
+    )
+}
+
 fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
     flex_col((
-        prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
+        flex_row((
+            prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
+            tag_search_bar(state),
+        )),
         // Intersection of tags applied to all selected entries
         flex_col((FlexSpacer::Fixed(200.px()),))
             .border(ZYNC_600, 1.px())

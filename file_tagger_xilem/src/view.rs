@@ -10,10 +10,11 @@ use xilem::{
         properties::Dimensions,
         theme::{ZYNC_600, ZYNC_700, ZYNC_800, ZYNC_900},
     },
-    palette::css::RED,
+    palette::css::{RED, TRANSPARENT},
     style::{Padding, Style},
     view::{
-        FlexExt, FlexSpacer, MainAxisAlignment, flex_col, flex_row, prose, spinner, text_button,
+        Button, FlexExt, FlexSpacer, MainAxisAlignment, TextInput, flex_col, flex_row, prose,
+        spinner, text_button,
     },
 };
 
@@ -100,6 +101,43 @@ pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<Database
         .weight(FontWeight::BOLD)
         .text_size(20.0)
         .dims(Dimensions::width(Dim::Stretch))
+}
+
+pub fn search_input<State, F, V>(
+    text_input: TextInput<State, ()>,
+    button: Button<State, (), F, V>,
+    dims: Dimensions,
+) -> impl WidgetView<State> + use<State, F, V>
+where
+    Button<State, (), F, V>: WidgetView<State>,
+    <Button<State, (), F, V> as WidgetView<State>>::Widget: Sized,
+{
+    // Hoist the `text_input` styling to the enclosing `flex_row` so the button looks like it's inside the text box
+    // TODO: on-hover styling (see: <https://github.com/linebender/xilem/issues/1786>)
+    flex_row((
+        text_input
+            .border_width(0.px())
+            .background(TRANSPARENT)
+            .flex(1.0),
+        button
+            .corner_radius(f64::MAX.px()) // circle
+            .border_width(0.px())
+            // Manually tuned padding to make it look centered and circular
+            .padding(Padding {
+                top: 5.px(),
+                ..Padding::horizontal(8.px())
+            }),
+    ))
+    .gap(1.px())
+    // The text input has its own padding, this is just for the button
+    .padding(Padding {
+        right: 12.px(),
+        ..Padding::vertical(2.px())
+    })
+    // Border and corner radius the same as the text input
+    .border(ZYNC_600, 1.px())
+    .corner_radius(4.px())
+    .dims(dims)
 }
 
 // Overlay views
