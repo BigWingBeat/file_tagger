@@ -1,4 +1,4 @@
-use file_tagger_internals::EditEntry;
+use file_tagger_internals::{EditEntry, Tag};
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
@@ -8,8 +8,8 @@ use xilem::{
     },
     style::Style,
     view::{
-        FlexSequence, FlexSpacer, MainAxisAlignment, button, flex_col, flex_row, portal, prose,
-        svg, text_button, text_input,
+        FlexExt, FlexSequence, FlexSpacer, MainAxisAlignment, button, flex_col, flex_row, portal,
+        prose, svg, text_button, text_input,
     },
 };
 
@@ -74,6 +74,9 @@ fn placeholder_tile(state: &XilemAppState) -> impl WidgetView<XilemAppState> + u
 fn entry_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
     // Display thumbnails of entries being edited, entries can be selected
     flex_col((
+        prose("Edit Selected Entries")
+            .weight(FontWeight::BOLD)
+            .text_size(20.0),
         portal(
             flex_row((
                 state
@@ -102,11 +105,33 @@ fn tag_search_bar(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> +
             state.edit.tag_search_bar_state.clone(),
             |state: &mut XilemAppState, text| state.edit.tag_search_bar_state = text,
         )
-        .on_enter(|state: &mut XilemAppState, _| {})
+        .on_enter(|state: &mut XilemAppState, text| {
+            if state.edit.add_tag_to_selected(&text.as_str().into()) {
+                state.edit.tag_search_bar_state.clear();
+            }
+        })
         .placeholder("Search For Tags"),
-        text_button("＋", |state: &mut XilemAppState| {}),
+        text_button("＋", |state: &mut XilemAppState| {
+            let tag = state.edit.tag_search_bar_state.as_str().into();
+            if state.edit.add_tag_to_selected(&tag) {
+                state.edit.tag_search_bar_state.clear();
+            }
+        }),
         Dimensions::width(Dim::Fixed(512.px())),
     )
+}
+
+fn tag_item(tag: &Tag) -> impl WidgetView<XilemAppState> {
+    // borrowck shit
+    let tag_clone = tag.clone();
+    flex_row((
+        text_button("－", move |state: &mut XilemAppState| {
+            state.edit.remove_tag_from_selected(&tag_clone);
+        })
+        .border_width(0.px()),
+        prose(tag.as_str()),
+    ))
+    .background(ZYNC_800)
 }
 
 fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
@@ -116,9 +141,18 @@ fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
             tag_search_bar(state),
         )),
         // Intersection of tags applied to all selected entries
-        flex_col((FlexSpacer::Fixed(200.px()),))
-            .border(ZYNC_600, 1.px())
-            .corner_radius(4.px()),
+        flex_col(
+            state
+                .edit
+                .intersection_of_tags_of_selected_entries()
+                .map(tag_item)
+                .collect::<Vec<_>>(),
+        )
+        .gap(4.px())
+        .padding(4.px())
+        .corner_radius(4.px())
+        .border(ZYNC_600, 1.px())
+        .flex(0.2),
         flex_row((
             FlexSpacer::Flex(1.0),
             text_button("Save Changes", |state: &mut XilemAppState| {}),

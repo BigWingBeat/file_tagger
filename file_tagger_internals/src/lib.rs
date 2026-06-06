@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
 mod app_data;
 mod database;
@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, Report};
 
 pub use crate::{
     app_data::{AppData, RecentFolder},
-    tags_db::{DatabaseState, Entry},
+    tags_db::{DatabaseState, Entry, Tag},
 };
 
 const FOLDER_NAME: &str = ".file_tagger";
@@ -46,7 +46,18 @@ pub struct SearchBarState {
 pub struct EditEntry {
     pub id: Entry,
     pub name: String,
+    pub tags: BTreeSet<Tag>,
     pub selected: bool,
+}
+
+impl EditEntry {
+    pub fn selected_tags(&self) -> Option<&BTreeSet<Tag>> {
+        self.selected.then_some(&self.tags)
+    }
+
+    pub fn selected_tags_mut(&mut self) -> Option<&mut BTreeSet<Tag>> {
+        self.selected.then_some(&mut self.tags)
+    }
 }
 
 #[derive(Default)]
@@ -78,6 +89,45 @@ impl EditState {
     pub fn toggle_entry_selected(&mut self, index: usize) {
         if let Some(entry) = self.entries.get_mut(index) {
             entry.selected = !entry.selected;
+        }
+    }
+
+    pub fn intersection_of_tags_of_selected_entries(&self) -> impl Iterator<Item = &Tag> {
+        self.entries
+            .iter()
+            .filter_map(EditEntry::selected_tags)
+            .min_by_key(|tags| tags.len())
+            .into_iter()
+            .flat_map(|smallest| {
+                smallest.iter().filter(|tag| {
+                    self.entries
+                        .iter()
+                        .filter_map(EditEntry::selected_tags)
+                        .all(|tags| tags.contains(tag))
+                })
+            })
+    }
+
+    /// Returns if the tag was actually added to anything
+    pub fn add_tag_to_selected(&mut self, tag: &Tag) -> bool {
+        let mut any = false;
+        for tags in self
+            .entries
+            .iter_mut()
+            .filter_map(EditEntry::selected_tags_mut)
+        {
+            any |= tags.insert(tag.clone());
+        }
+        any
+    }
+
+    pub fn remove_tag_from_selected(&mut self, tag: &Tag) {
+        for tags in self
+            .entries
+            .iter_mut()
+            .filter_map(EditEntry::selected_tags_mut)
+        {
+            tags.remove(tag);
         }
     }
 }
@@ -156,6 +206,7 @@ impl AppState {
         self.edit.entries.push(EditEntry {
             id,
             name: String::new(),
+            tags: BTreeSet::new(),
             selected: true,
         });
     }

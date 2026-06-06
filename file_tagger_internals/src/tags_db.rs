@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
     path::{Path, PathBuf},
     str::Utf8Error,
 };
@@ -146,7 +146,7 @@ impl AsBytes for Entry {
 
 impl Display for Entry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        Display::fmt(&self.0, f)
     }
 }
 
@@ -181,8 +181,9 @@ impl TryFrom<&[u8]> for Entry {
     }
 }
 
-/// User-facing identifier for a tag, which is a type that can have instances associated with specific entries.
+/// User-facing UTF-8 identifier for a tag, which is a type that can have instances associated with specific entries.
 /// Each tag also has its own associated entry, which can itself be tagged.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Tag(SmallVec<[u8; INLINE_SIZE]>);
 
 impl AsRef<[u8]> for Tag {
@@ -191,11 +192,36 @@ impl AsRef<[u8]> for Tag {
     }
 }
 
+impl From<&str> for Tag {
+    fn from(value: &str) -> Self {
+        Self(SmallVec::from_slice(value.as_bytes()))
+    }
+}
+
 impl TryFrom<&[u8]> for Tag {
     type Error = Utf8Error;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         str::from_utf8(value).map(|value| Self(SmallVec::from_slice(value.as_bytes())))
+    }
+}
+
+impl Tag {
+    pub fn as_str(&self) -> &str {
+        // SAFETY: The contained bytes are asserted to be valid UTF-8 on construction, and the value is immutable
+        unsafe { str::from_utf8_unchecked(&self.0) }
+    }
+}
+
+impl Debug for Tag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Tag").field(&self.as_str()).finish()
+    }
+}
+
+impl Display for Tag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
