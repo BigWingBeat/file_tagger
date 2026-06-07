@@ -57,6 +57,21 @@ impl DatabaseState {
     pub fn generate_entry(&mut self) -> Entry {
         self.database.generate_entry()
     }
+
+    pub fn tag_entry_by_name(&self, tag: &Tag) -> miette::Result<Option<Entry>> {
+        self.database.tag_entry_by_name(tag)
+    }
+
+    pub fn tag_exists(&self, tag: &Tag) -> miette::Result<bool> {
+        self.database.tag_exists(tag)
+    }
+
+    pub fn search_tags_names_by_prefix(
+        &self,
+        prefix: impl AsRef<[u8]>,
+    ) -> impl Iterator<Item = miette::Result<Tag>> {
+        self.database.search_tags_names_by_prefix(prefix)
+    }
 }
 
 pub struct TagsDatabase {
@@ -127,6 +142,24 @@ impl TagsDatabase {
                 std::thread::sleep(DELAY);
             }
         }
+    }
+
+    fn tag_entry_by_name(&self, tag: &Tag) -> miette::Result<Option<Entry>> {
+        self.tag_entries.get(tag)
+    }
+
+    fn tag_exists(&self, tag: &Tag) -> miette::Result<bool> {
+        self.tag_entries.get(tag).map(|entry| entry.is_some())
+    }
+
+    fn search_tags_names_by_prefix(
+        &self,
+        prefix: impl AsRef<[u8]>,
+    ) -> impl Iterator<Item = miette::Result<Tag>> {
+        self.tag_entries.prefix(prefix).map(|kv| {
+            kv.into_diagnostic()
+                .and_then(|(k, v)| (*k).try_into().into_diagnostic())
+        })
     }
 }
 

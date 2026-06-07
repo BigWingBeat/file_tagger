@@ -52,6 +52,8 @@ impl super::DatabaseImpl for Database {
 pub struct Table(sled::Tree);
 
 impl super::TableImpl for Table {
+    type Iter = Iter;
+
     #[inline(always)]
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>> {
         self.0.get(key)
@@ -71,4 +73,28 @@ impl super::TableImpl for Table {
     fn last_kv(&self) -> Result<Option<(Buffer, Buffer)>> {
         self.0.last()
     }
+
+    #[inline(always)]
+    fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter {
+        self.0.scan_prefix(prefix)
+    }
 }
+
+#[repr(transparent)]
+pub struct Iter(sled::Iter);
+
+impl Iterator for Iter {
+    type Item = Result<(Buffer, Buffer)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl DoubleEndedIterator for Iter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back()
+    }
+}
+
+impl super::IterImpl for Iter {}

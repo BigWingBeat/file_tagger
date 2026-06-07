@@ -108,6 +108,10 @@ where
         Self::parse_kv_result(self.database.last_kv())
     }
 
+    pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> backend::Iter {
+        self.database.prefix(prefix)
+    }
+
     fn parse_result(
         result: backend::Result<Option<backend::Buffer>>,
     ) -> miette::Result<Option<Value>> {

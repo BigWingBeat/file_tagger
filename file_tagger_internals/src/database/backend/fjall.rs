@@ -61,6 +61,8 @@ impl super::DatabaseImpl for Database {
 pub struct Table(fjall::Keyspace);
 
 impl super::TableImpl for Table {
+    type Iter = Iter;
+
     #[inline(always)]
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>> {
         self.0.get(key)
@@ -86,4 +88,28 @@ impl super::TableImpl for Table {
             .map(|guard| guard.into_inner())
             .transpose()
     }
+
+    #[inline(always)]
+    fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter {
+        Iter(self.0.prefix(prefix))
+    }
 }
+
+#[repr(transparent)]
+pub struct Iter(fjall::Iter);
+
+impl Iterator for Iter {
+    type Item = Result<(Buffer, Buffer)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|guard| guard.into_inner())
+    }
+}
+
+impl DoubleEndedIterator for Iter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|guard| guard.into_inner())
+    }
+}
+
+impl super::IterImpl for Iter {}

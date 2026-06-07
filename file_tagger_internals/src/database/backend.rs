@@ -13,7 +13,7 @@ cfg_select! {
 
 use std::path::Path;
 
-pub use backend::{Buffer, Builder, Database, Result, Table};
+pub use backend::{Buffer, Builder, Database, Iter, Result, Table};
 
 pub trait BuilderImpl {
     type Database;
@@ -30,8 +30,12 @@ pub trait DatabaseImpl {
 }
 
 pub trait TableImpl {
+    type Iter;
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>>;
     fn insert(&self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()>;
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
+    fn prefix(&self, prefix: impl AsRef<[u8]>) -> Self::Iter;
 }
+
+pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedIterator {}

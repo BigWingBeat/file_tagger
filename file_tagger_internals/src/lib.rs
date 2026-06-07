@@ -143,7 +143,7 @@ pub struct AppState {
 }
 
 macro_rules! set_err {
-    ($this:ident, $result:expr) => {{
+    ($this:ident, $result:expr $(,)?) => {{
         let result: Result<_, Report> = $result;
         match result {
             Ok(ok) => ok,
@@ -176,7 +176,7 @@ impl AppState {
         set_err!(self, self.database.open_in_folder(folder.clone()));
         set_err!(
             self,
-            self.persistent.write_recent_folders().into_diagnostic()
+            self.persistent.write_recent_folders().into_diagnostic(),
         );
         self.active_view = ActiveView::SearchMenu;
     }
@@ -209,6 +209,26 @@ impl AppState {
             tags: BTreeSet::new(),
             selected: true,
         });
+    }
+
+    pub fn edit_try_add_searched_tag_to_selected(&mut self) {
+        let tag = self.edit.tag_search_bar_state.as_str().into();
+        let tag_exists = set_err!(self, self.database.tag_exists(&tag));
+        if tag_exists && self.edit.add_tag_to_selected(&tag) {
+            self.edit.tag_search_bar_state.clear();
+        }
+    }
+
+    pub fn edit_tag_prefix_search_results(&mut self) -> impl Iterator<Item = Tag> {
+        self.database
+            .search_tags_names_by_prefix(&self.edit.tag_search_bar_state)
+            .map_while(|result| match result {
+                Ok(tag) => Some(tag),
+                Err(e) => {
+                    self.active_overlay = ActiveOverlay::Error(e);
+                    None
+                }
+            })
     }
 }
 

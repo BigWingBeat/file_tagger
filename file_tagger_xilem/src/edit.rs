@@ -1,6 +1,7 @@
 use file_tagger_internals::{EditEntry, Tag};
 use xilem::{
     FontWeight, WidgetView,
+    core::one_of::Either,
     masonry::{
         layout::{AsUnit, Dim},
         properties::Dimensions,
@@ -105,17 +106,12 @@ fn tag_search_bar(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> +
             state.edit.tag_search_bar_state.clone(),
             |state: &mut XilemAppState, text| state.edit.tag_search_bar_state = text,
         )
-        .on_enter(|state: &mut XilemAppState, text| {
-            if state.edit.add_tag_to_selected(&text.as_str().into()) {
-                state.edit.tag_search_bar_state.clear();
-            }
+        .on_enter(|state: &mut XilemAppState, _text| {
+            state.edit_try_add_searched_tag_to_selected();
         })
         .placeholder("Search For Tags"),
         text_button("＋", |state: &mut XilemAppState| {
-            let tag = state.edit.tag_search_bar_state.as_str().into();
-            if state.edit.add_tag_to_selected(&tag) {
-                state.edit.tag_search_bar_state.clear();
-            }
+            state.edit_try_add_searched_tag_to_selected();
         }),
         Dimensions::width(Dim::Fixed(512.px())),
     )
@@ -134,21 +130,52 @@ fn tag_item(tag: &Tag) -> impl WidgetView<XilemAppState> {
     .background(ZYNC_800)
 }
 
+fn tag_search_result(tag: &Tag) -> impl WidgetView<XilemAppState> + use<> {
+    // borrowck shit
+    let tag_clone = tag.clone();
+    button(
+        // TODO: Show number of entries the tag is already applied to?
+        flex_row((prose("＋"), prose(tag.as_str()))),
+        move |state: &mut XilemAppState| {
+            if state.edit.add_tag_to_selected(&tag_clone) {
+                state.edit.tag_search_bar_state.clear();
+            }
+        },
+    )
+    .background(ZYNC_800)
+}
+
 fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
     flex_col((
         flex_row((
             prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
             tag_search_bar(state),
         )),
-        // Intersection of tags applied to all selected entries
-        flex_col(
-            state
-                .edit
-                .intersection_of_tags_of_selected_entries()
-                .map(tag_item)
-                .collect::<Vec<_>>(),
-        )
-        .gap(4.px())
+        flex_col(if state.edit.tag_search_bar_state.is_empty() {
+            // Empty search bar -> no search results
+            Either::A(
+                flex_col(
+                    state
+                        .edit
+                        .intersection_of_tags_of_selected_entries()
+                        .map(tag_item)
+                        .collect::<Vec<_>>(),
+                )
+                .gap(4.px()),
+            )
+        } else {
+            // Some search query entered -> show search results
+            // This does a database lookup (probably expensive), so we use `Either` to avoid doing this unless we need to
+            Either::B(
+                flex_col(
+                    state
+                        .edit_tag_prefix_search_results()
+                        .map(|tag| tag_search_result(&tag))
+                        .collect::<Vec<_>>(),
+                )
+                .gap(4.px()),
+            )
+        })
         .padding(4.px())
         .corner_radius(4.px())
         .border(ZYNC_600, 1.px())
