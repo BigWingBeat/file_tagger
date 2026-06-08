@@ -6,10 +6,10 @@ use xilem::{
 
 use file_tagger_internals::{ActiveOverlay, AppState};
 
-use crate::{XilemAppState, view::search_input};
+use crate::{XilemAppState, view::submittable_text_input};
 
 pub fn search_bar(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
-    search_input(
+    submittable_text_input(
         text_input(
             state.search_menu.search_text.clone(),
             |state: &mut XilemAppState, text| state.search_menu.search_text = text,

@@ -103,7 +103,7 @@ pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<Database
         .dims(Dimensions::width(Dim::Stretch))
 }
 
-pub fn search_input<State, F, V>(
+pub fn submittable_text_input<State, F, V>(
     text_input: TextInput<State, ()>,
     button: Button<State, (), F, V>,
     dims: Dimensions,

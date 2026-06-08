@@ -75,6 +75,7 @@ impl SearchResultsState {
 pub struct EditState {
     entries: Vec<EditEntry>,
     pub tag_search_bar_state: String,
+    pub tag_create_name_state: String,
 }
 
 impl EditState {
@@ -89,6 +90,12 @@ impl EditState {
     pub fn toggle_entry_selected(&mut self, index: usize) {
         if let Some(entry) = self.entries.get_mut(index) {
             entry.selected = !entry.selected;
+        }
+    }
+
+    pub fn set_entry_name(&mut self, index: usize, name: String) {
+        if let Some(entry) = self.entries.get_mut(index) {
+            entry.name = name;
         }
     }
 
@@ -201,11 +208,16 @@ impl AppState {
         // self.edit.entries = paths;
     }
 
-    pub fn generate_entry(&mut self) {
+    pub fn edit_create_tag_entry(&mut self) {
+        if self.edit.tag_create_name_state.is_empty() {
+            return;
+        }
+
         let id = self.database.generate_entry();
+        let name = std::mem::take(&mut self.edit.tag_create_name_state);
         self.edit.entries.push(EditEntry {
             id,
-            name: String::new(),
+            name,
             tags: BTreeSet::new(),
             selected: true,
         });
