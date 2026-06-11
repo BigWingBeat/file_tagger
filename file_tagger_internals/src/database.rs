@@ -6,8 +6,8 @@ use thiserror::Error;
 
 mod backend;
 
-pub use backend::{Buffer, Database, Result};
-use backend::{Builder, BuilderImpl, DatabaseImpl, TableImpl};
+pub use backend::{Buffer, Database, DatabaseImpl, Error, Result, Transaction, TransactionImpl};
+use backend::{Builder, BuilderImpl, TableImpl};
 
 /// A bit like a [`Cow`], but defined by the owned form of the type, instead of by the borrowed form.
 /// This is needed, instead of just using `Cow`, as we are fixing the borrowed form to be `&[u8]`, and letting the
@@ -75,6 +75,16 @@ impl<'a, T> Key<'a> for T where T: Serde<'a> {}
 pub struct Table<Key, Value> {
     database: backend::Table,
     marker: PhantomData<(Key, Value)>,
+}
+
+/// `#[derive(Clone)]` adds `where Key: Clone, Value: Clone` which is wrong as they are just `PhantomData` params
+impl<Key, Value> Clone for Table<Key, Value> {
+    fn clone(&self) -> Self {
+        Self {
+            database: self.database.clone(),
+            marker: PhantomData,
+        }
+    }
 }
 
 impl<Key, Value> Table<Key, Value>

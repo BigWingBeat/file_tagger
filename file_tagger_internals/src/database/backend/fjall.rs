@@ -1,20 +1,54 @@
 use std::path::Path;
 
-use fjall::{CompressionType, KeyspaceCreateOptions};
+use fjall::{CompressionType, KeyspaceCreateOptions, Readable};
+
+pub type Error = fjall::Error;
 
 pub type Result<T> = fjall::Result<T>;
 
 pub type Buffer = fjall::Slice;
 
+/// Non-transactional impl
+mod NoTx {
+    pub type FjallDatabase = fjall::Database;
+    pub type Keyspace = fjall::Keyspace;
+    // No single transaction type, instead there's `Snapshot` which is read-only and `WriteBatch` which is write-only
+}
+
+/// Single-writer transactional impl (mutex locks the db)
+mod SingleWriterTx {
+    pub type FjallDatabase = fjall::SingleWriterTxDatabase;
+    pub type Keyspace = fjall::SingleWriterTxKeyspace;
+    pub type FjallTransaction<'a> = fjall::SingleWriterWriteTx<'a>;
+}
+
+/// Multi-writer transactional impl (optimistic concurrency control)
+mod OptimisticTx {
+    pub type FjallDatabase = fjall::OptimisticTxDatabase;
+    pub type Keyspace = fjall::OptimisticTxKeyspace;
+    pub type FjallTransaction = fjall::OptimisticWriteTx;
+}
+
+/// Choose one of the three database impls:
+/// - `NoTx` doesn't support read-what-you-write transactions, which we need
+/// - `SingleWriterTx` requires Shenanigans to workaround lifetime issues
+/// - `OptimisticTx` has the nicest API, but worse performance, as we have no concurrency
+/// Ideally we would use `NoTx` with `BaseTransaction`, but the latter is not exposed anywhere.
+/// We use `SingleWriterTx` as the aforementioned shenanigans are *mandatory* for the corresponding Sled impl,
+/// so as we are already paying that cost, this `SingleWriterTx` impl is essentially free
+// use NoTx::{FjallDatabase, Keyspace};
+use SingleWriterTx::{FjallDatabase, FjallTransaction, Keyspace};
+// use OptimisticTx::{FjallDatabase, FjallTransaction, Keyspace};
+
 #[repr(transparent)]
-pub struct Builder(fjall::DatabaseBuilder<fjall::Database>);
+pub struct Builder(fjall::DatabaseBuilder<FjallDatabase>);
 
 impl super::BuilderImpl for Builder {
     type Database = Database;
 
     #[inline(always)]
     fn new_with_path(path: impl AsRef<Path>) -> Self {
-        Self(fjall::Database::builder(path))
+        Self(FjallDatabase::builder(path))
     }
 
     #[inline(always)]
@@ -43,11 +77,13 @@ impl super::BuilderImpl for Builder {
     }
 }
 
+#[derive(Clone)]
 #[repr(transparent)]
-pub struct Database(fjall::Database);
+pub struct Database(FjallDatabase);
 
 impl super::DatabaseImpl for Database {
     type Table = Table;
+    type Transaction<'a> = Transaction<'a>;
 
     #[inline(always)]
     fn open_table(&self, name: &str) -> Result<Self::Table> {
@@ -55,10 +91,15 @@ impl super::DatabaseImpl for Database {
             .keyspace(name, KeyspaceCreateOptions::default)
             .map(Table)
     }
+
+    fn transaction(&self) -> Result<Self::Transaction<'_>> {
+        Ok(Transaction::new(self.0.write_tx()))
+    }
 }
 
+#[derive(Clone)]
 #[repr(transparent)]
-pub struct Table(fjall::Keyspace);
+pub struct Table(Keyspace);
 
 impl super::TableImpl for Table {
     type Iter = Iter;
@@ -71,6 +112,10 @@ impl super::TableImpl for Table {
     #[inline(always)]
     fn insert(&self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()> {
         self.0.insert(key.as_ref(), value)
+    }
+
+    fn remove(&self, key: impl AsRef<[u8]>) -> Result<()> {
+        self.0.remove(key.as_ref())
     }
 
     #[inline(always)]
@@ -91,7 +136,7 @@ impl super::TableImpl for Table {
 
     #[inline(always)]
     fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter {
-        Iter(self.0.prefix(prefix))
+        Iter(self.0.as_ref().prefix(prefix))
     }
 }
 
@@ -113,3 +158,34 @@ impl DoubleEndedIterator for Iter {
 }
 
 impl super::IterImpl for Iter {}
+
+#[repr(transparent)]
+pub struct Transaction<'a>(FjallTransaction<'a>);
+
+impl<'a> Transaction<'a> {
+    fn new(transaction: FjallTransaction<'a>) -> Self {
+        Self(transaction)
+    }
+}
+
+impl super::TransactionImpl for Transaction<'_> {
+    fn get(&self, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
+        self.0.get(todo!(), key.into())
+    }
+
+    fn insert(&mut self, key: impl Into<Buffer>, value: impl Into<Buffer>) -> Result<()> {
+        self.0.insert(todo!(), key, value);
+    }
+
+    fn remove(&mut self, key: impl Into<Buffer>) -> Result<()> {
+        self.0.remove(todo!(), key);
+    }
+
+    fn commit(self) -> Result<()> {
+        self.0.commit()
+    }
+
+    fn rollback(self) {
+        self.0.rollback();
+    }
+}

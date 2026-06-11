@@ -1,10 +1,11 @@
 use std::ops::{Deref, DerefMut};
 
-use file_tagger_internals::{ActiveOverlay, ActiveView, AppState};
+use file_tagger_internals::{ActiveOverlay, ActiveView, AppState, Buffer, DatabaseError};
 use miette::{IntoDiagnostic, MietteHandlerOpts};
 use xilem::{
     EventLoop, ViewCtx, WidgetView, WindowOptions, Xilem,
     core::{AnyView, NoElement, View, one_of::Either},
+    tokio::sync::mpsc::UnboundedSender,
     view::zstack,
     winit::error::EventLoopError,
 };
@@ -27,11 +28,33 @@ mod view;
 /// The `alongside_view` for `fork` requires the element type to be `NoElement`, but `AnyWidgetView` forces it to be `Pod<Passthrough>`
 type AnyTaskView<State, Action = ()> = dyn AnyView<State, Action, ViewCtx, NoElement> + Send + Sync;
 
+/// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs.
+/// This is the message type passed over a channel to allow the GUI to control the transaction
+pub enum TransAction {
+    Get(Buffer),
+    Insert(Buffer, Buffer),
+    Remove(Buffer),
+    Commit,
+    Rollback,
+}
+
+/// This is the message type passed back from the transaction thread with the result of the action
+#[derive(Debug)]
+pub enum TransReaction {
+    Get(Result<Option<Buffer>, DatabaseError>),
+    Insert(Result<(), DatabaseError>),
+    Remove(Result<(), DatabaseError>),
+    Commit(Result<(), DatabaseError>),
+    Rollback,
+}
+
 /// State wrapper so we can store xilem-specific state
 struct XilemAppState {
     state: AppState,
     assets: Assets,
+    /// Displayed by [`crate::view::spinner_view`] when the active overlay is [`ActiveOverlay::Spinner`]
     pending_task: Option<Box<dyn Fn(&mut AppState) -> Box<AnyTaskView<AppState>>>>,
+    active_transaction: Option<UnboundedSender<TransAction>>,
 }
 
 impl Deref for XilemAppState {
@@ -56,6 +79,7 @@ impl XilemAppState {
             state,
             assets,
             pending_task: None,
+            active_transaction: None,
         })
     }
 

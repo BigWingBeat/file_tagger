@@ -2,6 +2,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     path::{Path, PathBuf},
     str::Utf8Error,
+    sync::{Arc, Mutex},
 };
 
 use miette::IntoDiagnostic;
@@ -13,7 +14,8 @@ use crate::{
     FOLDER_NAME,
     app_data::RecentFolder,
     database::{
-        self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
+        self, AsBytes, Buffer, Bytes, CompositeKey, Database, DatabaseImpl, INLINE_SIZE,
+        InlineStrVec, Table, Transaction,
     },
 };
 
@@ -23,6 +25,10 @@ pub struct DatabaseState {
 }
 
 impl DatabaseState {
+    pub fn inner_db_handle(&self) -> &TagsDatabase {
+        &self.database
+    }
+
     pub fn active_folder(&self) -> &RecentFolder {
         &self.active_folder
     }
@@ -74,6 +80,7 @@ impl DatabaseState {
     }
 }
 
+#[derive(Clone)]
 pub struct TagsDatabase {
     database: Database,
     /// Lookup which entries tags are applied to
@@ -98,7 +105,9 @@ pub struct TagsDatabase {
     /// Key: tag name
     /// Value: tag entry ID
     tag_entries: Table<Tag, Entry>,
-    generator: Scru64Generator,
+    /// `Scru64Generator` already impls `Clone` itself but I'm not sure what the implications of cloning a generator are
+    /// in terms of the generated IDs, so I'm making it a singleton type thing just in case
+    generator: Arc<Mutex<Scru64Generator>>,
 }
 
 impl TagsDatabase {
@@ -107,7 +116,7 @@ impl TagsDatabase {
         let tags_by_entry = Table::open(&database, "TagsByEntry").into_diagnostic()?;
         let tag_values = Table::open(&database, "TagValues").into_diagnostic()?;
         let tag_entries = Table::open(&database, "TagEntries").into_diagnostic()?;
-        let generator = init_or_resume_generator(&tags_by_entry)?;
+        let generator = Arc::new(Mutex::new(init_or_resume_generator(&tags_by_entry)?));
         Ok(Self {
             database,
             entries_by_tag,
@@ -135,7 +144,7 @@ impl TagsDatabase {
         // See: `scru64::new_sync()`
         const DELAY: std::time::Duration = std::time::Duration::from_millis(64);
         loop {
-            if let Some(id) = self.generator.generate() {
+            if let Some(id) = self.generator.lock().unwrap().generate() {
                 return id.into();
             } else {
                 eprintln!("sleeping to generate entry ID");
@@ -160,6 +169,10 @@ impl TagsDatabase {
             kv.into_diagnostic()
                 .and_then(|(k, v)| (*k).try_into().into_diagnostic())
         })
+    }
+
+    pub fn transaction(&self) -> miette::Result<Transaction<'_>> {
+        self.database.transaction().into_diagnostic()
     }
 }
 
