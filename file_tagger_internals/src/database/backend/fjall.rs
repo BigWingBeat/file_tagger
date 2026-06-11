@@ -33,6 +33,7 @@ mod OptimisticTx {
 /// - `NoTx` doesn't support read-what-you-write transactions, which we need
 /// - `SingleWriterTx` requires Shenanigans to workaround lifetime issues
 /// - `OptimisticTx` has the nicest API, but worse performance, as we have no concurrency
+///
 /// Ideally we would use `NoTx` with `BaseTransaction`, but the latter is not exposed anywhere.
 /// We use `SingleWriterTx` as the aforementioned shenanigans are *mandatory* for the corresponding Sled impl,
 /// so as we are already paying that cost, this `SingleWriterTx` impl is essentially free
@@ -170,7 +171,8 @@ impl<'a> Transaction<'a> {
 
 impl super::TransactionImpl for Transaction<'_> {
     fn get(&self, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
-        self.0.get(todo!(), key.into())
+        todo!()
+        // self.0.get(todo!(), key.into())
     }
 
     fn insert(&mut self, key: impl Into<Buffer>, value: impl Into<Buffer>) -> Result<()> {
