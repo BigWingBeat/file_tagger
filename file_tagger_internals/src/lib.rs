@@ -9,7 +9,8 @@ use miette::{IntoDiagnostic, Report};
 pub use crate::{
     app_data::{AppData, RecentFolder},
     database::{
-        Buffer, Error as DatabaseError, Result as DatabaseResult, Transaction, TransactionImpl,
+        Buffer, Error as DatabaseError, Result as DatabaseResult, Table, Transaction,
+        TransactionImpl, UntypedTable,
     },
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };

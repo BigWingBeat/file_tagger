@@ -170,17 +170,25 @@ impl<'a> Transaction<'a> {
 }
 
 impl super::TransactionImpl for Transaction<'_> {
-    fn get(&self, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
-        todo!()
-        // self.0.get(todo!(), key.into())
+    type Table = Table;
+
+    fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
+        self.0.get(&table.0, key.into())
     }
 
-    fn insert(&mut self, key: impl Into<Buffer>, value: impl Into<Buffer>) -> Result<()> {
-        self.0.insert(todo!(), key, value);
+    fn insert(
+        &mut self,
+        table: &Self::Table,
+        key: impl Into<Buffer>,
+        value: impl Into<Buffer>,
+    ) -> Result<()> {
+        self.0.insert(&table.0, key, value);
+        Ok(())
     }
 
-    fn remove(&mut self, key: impl Into<Buffer>) -> Result<()> {
-        self.0.remove(todo!(), key);
+    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()> {
+        self.0.remove(&table.0, key);
+        Ok(())
     }
 
     fn commit(self) -> Result<()> {
@@ -188,6 +196,6 @@ impl super::TransactionImpl for Transaction<'_> {
     }
 
     fn rollback(self) {
-        self.0.rollback();
+        self.0.rollback()
     }
 }

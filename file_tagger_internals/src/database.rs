@@ -6,7 +6,10 @@ use thiserror::Error;
 
 mod backend;
 
-pub use backend::{Buffer, Database, DatabaseImpl, Error, Result, Transaction, TransactionImpl};
+pub use backend::{
+    Buffer, Database, DatabaseImpl, Error, Result, Table as UntypedTable, Transaction,
+    TransactionImpl,
+};
 use backend::{Builder, BuilderImpl, TableImpl};
 
 /// A bit like a [`Cow`], but defined by the owned form of the type, instead of by the borrowed form.

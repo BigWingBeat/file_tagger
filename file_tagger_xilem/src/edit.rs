@@ -1,6 +1,8 @@
 use std::sync::mpsc::{Receiver, SyncSender};
 
-use file_tagger_internals::{Buffer, DatabaseError, DatabaseResult, Tag, TransactionImpl};
+use file_tagger_internals::{
+    Buffer, DatabaseError, DatabaseResult, Tag, TransactionImpl, UntypedTable,
+};
 use xilem::{
     FontWeight, ViewCtx, WidgetView,
     core::{MessageCtx, MessageResult, Mut, NoElement, View, ViewMarker, fork, one_of::Either},
@@ -205,9 +207,9 @@ pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
 
 /// This is the message type passed over a channel to allow the GUI to control the transaction
 enum TransAction {
-    Get(Buffer),
-    Insert(Buffer, Buffer),
-    Remove(Buffer),
+    Get(UntypedTable, Buffer),
+    Insert(UntypedTable, Buffer, Buffer),
+    Remove(UntypedTable, Buffer),
     Commit,
     Rollback,
 }
@@ -250,17 +252,26 @@ impl TransactionApi {
 }
 
 impl TransactionImpl for TransactionApi {
-    fn get(&self, key: impl Into<Buffer>) -> DatabaseResult<Option<Buffer>> {
-        self.sender.send(TransAction::Get(key.into())).unwrap();
+    type Table = UntypedTable;
+
+    fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> DatabaseResult<Option<Buffer>> {
+        self.sender
+            .send(TransAction::Get(table.clone(), key.into()))
+            .unwrap();
         let TransReaction::Get(result) = self.receiver.recv().unwrap() else {
             unreachable!();
         };
         result
     }
 
-    fn insert(&mut self, key: impl Into<Buffer>, value: impl Into<Buffer>) -> DatabaseResult<()> {
+    fn insert(
+        &mut self,
+        table: &Self::Table,
+        key: impl Into<Buffer>,
+        value: impl Into<Buffer>,
+    ) -> DatabaseResult<()> {
         self.sender
-            .send(TransAction::Insert(key.into(), value.into()))
+            .send(TransAction::Insert(table.clone(), key.into(), value.into()))
             .unwrap();
         let TransReaction::Insert(result) = self.receiver.recv().unwrap() else {
             unreachable!();
@@ -268,8 +279,10 @@ impl TransactionImpl for TransactionApi {
         result
     }
 
-    fn remove(&mut self, key: impl Into<Buffer>) -> DatabaseResult<()> {
-        self.sender.send(TransAction::Remove(key.into())).unwrap();
+    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> DatabaseResult<()> {
+        self.sender
+            .send(TransAction::Remove(table.clone(), key.into()))
+            .unwrap();
         let TransReaction::Remove(result) = self.receiver.recv().unwrap() else {
             unreachable!();
         };
@@ -311,19 +324,21 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
             let mut transaction = db.transaction().unwrap();
             while let Ok(action) = receiver.recv() {
                 match action {
-                    TransAction::Get(key) => {
+                    TransAction::Get(table, key) => {
                         sender
-                            .send(TransReaction::Get(transaction.get(key)))
+                            .send(TransReaction::Get(transaction.get(&table, key)))
                             .unwrap();
                     }
-                    TransAction::Insert(key, value) => {
+                    TransAction::Insert(table, key, value) => {
                         sender
-                            .send(TransReaction::Insert(transaction.insert(key, value)))
+                            .send(TransReaction::Insert(
+                                transaction.insert(&table, key, value),
+                            ))
                             .unwrap();
                     }
-                    TransAction::Remove(key) => {
+                    TransAction::Remove(table, key) => {
                         sender
-                            .send(TransReaction::Remove(transaction.remove(key)))
+                            .send(TransReaction::Remove(transaction.remove(&table, key)))
                             .unwrap();
                     }
                     TransAction::Commit => {

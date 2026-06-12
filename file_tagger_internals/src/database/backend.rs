@@ -47,9 +47,15 @@ pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedItera
 
 /// Dropping the transaction type should default to rollback
 pub trait TransactionImpl {
-    fn get(&self, key: impl Into<Buffer>) -> Result<Option<Buffer>>;
-    fn insert(&mut self, key: impl Into<Buffer>, value: impl Into<Buffer>) -> Result<()>;
-    fn remove(&mut self, key: impl Into<Buffer>) -> Result<()>;
+    type Table;
+    fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>>;
+    fn insert(
+        &mut self,
+        table: &Self::Table,
+        key: impl Into<Buffer>,
+        value: impl Into<Buffer>,
+    ) -> Result<()>;
+    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()>;
     fn commit(self) -> Result<()>;
     fn rollback(self);
 }
