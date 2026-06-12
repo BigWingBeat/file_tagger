@@ -14,8 +14,8 @@ use crate::{
     DatabaseResult, FOLDER_NAME,
     app_data::RecentFolder,
     database::{
-        self, AsBytes, Buffer, Bytes, CompositeKey, Database, DatabaseImpl, INLINE_SIZE,
-        InlineStrVec, Table, Transaction, TransactionResult,
+        self, AsBytes, Buffer, Bytes, CompositeKey, Database, DatabaseImpl, FinalizeTransaction,
+        INLINE_SIZE, InlineStrVec, Table, Transaction, TransactionResult,
     },
 };
 
@@ -173,8 +173,8 @@ impl TagsDatabase {
 
     pub fn transaction(
         &self,
-        f: impl Fn(Transaction<'_>) -> DatabaseResult<TransactionResult>,
-    ) -> DatabaseResult<()> {
+        f: impl Fn(Transaction<'_>) -> DatabaseResult<FinalizeTransaction>,
+    ) -> TransactionResult {
         self.database.transaction(f)
     }
 }

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, SyncSender};
 
 use file_tagger_internals::{
-    Buffer, DatabaseError, DatabaseResult, Tag, TransactionImpl, UntypedTable,
+    Buffer, DatabaseError, DatabaseResult, Tag, TransactionImpl, TransactionResult, UntypedTable,
 };
 use xilem::{
     FontWeight, ViewCtx, WidgetView,
@@ -347,9 +347,12 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
                 // Either we explicitly received a `Rollback` action, or the sender was disconnected
                 Ok(transaction.rollback())
             });
-            // The `Err` variant of this result is always a `Commit` error, as rollbacks are infallible,
-            // and we eat the results of every non-terminal action
-            sender.send(TransReaction::Commit(result)).unwrap();
+            // We eat the results of every non-terminal action, so this is always a `Commit` result
+            match result {
+                TransactionResult::Ok(()) => sender.send(TransReaction::Commit(Ok(()))).unwrap(),
+                TransactionResult::Err(e) => sender.send(TransReaction::Commit(Err(e))).unwrap(),
+                TransactionResult::Rollback => {}
+            }
         });
         (NoElement, view_state)
     }

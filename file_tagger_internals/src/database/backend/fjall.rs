@@ -2,6 +2,8 @@ use std::path::Path;
 
 use fjall::{CompressionType, KeyspaceCreateOptions, Readable};
 
+use super::{FinalizeTransaction, FinalizeTransactionType, TransactionResult};
+
 pub type Error = fjall::Error;
 
 pub type Result<T> = fjall::Result<T>;
@@ -93,8 +95,19 @@ impl super::DatabaseImpl for Database {
             .map(Table)
     }
 
-    fn transaction(&self) -> Result<Self::Transaction<'_>> {
-        Ok(Transaction::new(self.0.write_tx()))
+    fn transaction(
+        &self,
+        f: impl Fn(Self::Transaction<'_>) -> Result<super::FinalizeTransaction>,
+    ) -> TransactionResult {
+        let transaction = self.0.write_tx();
+        let result = f(Transaction(transaction));
+        match result {
+            Ok(FinalizeTransaction(FinalizeTransactionType::Commit)) => TransactionResult::Ok(()),
+            Ok(FinalizeTransaction(FinalizeTransactionType::Rollback)) => {
+                TransactionResult::Rollback
+            }
+            Err(e) => TransactionResult::Err(e),
+        }
     }
 }
 
@@ -189,5 +202,16 @@ impl super::TransactionImpl for Transaction<'_> {
     fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()> {
         self.0.remove(&table.0, key);
         Ok(())
+    }
+
+    fn commit(self) -> Result<FinalizeTransaction> {
+        self.0
+            .commit()
+            .map(|_| FinalizeTransaction(FinalizeTransactionType::Commit))
+    }
+
+    fn rollback(self) -> FinalizeTransaction {
+        self.0.rollback();
+        FinalizeTransaction(FinalizeTransactionType::Rollback)
     }
 }

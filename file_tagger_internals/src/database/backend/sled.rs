@@ -8,7 +8,7 @@ use sled::{
     },
 };
 
-use super::{TransactionResult, TransactionResultType};
+use super::{FinalizeTransaction, FinalizeTransactionType, TransactionResult};
 
 pub type Error = sled::Error;
 
@@ -64,36 +64,38 @@ impl super::DatabaseImpl for Database {
 
     fn transaction(
         &self,
-        f: impl Fn(Self::Transaction<'_>) -> Result<TransactionResult>,
-    ) -> Result<()> {
+        f: impl Fn(Self::Transaction<'_>) -> Result<FinalizeTransaction>,
+    ) -> TransactionResult {
         // Sled requires us to specify all of the trees involved in a transaction upfront,
         // whereas Fjall allows specifying any keyspace for each operation in the transaction.
         // To emulate the latter with the former, we initiate the transaction with *every* tree in the database.
         // Sled's trees are not `PartialEq` though, so we use the "name" of the trees as the key for comparisons.
         let names = self.0.tree_names();
         // `try_collect` is unstable
-        let trees = names.iter().try_fold(Vec::new(), |mut vec, name| {
+        let trees = match names.iter().try_fold(Vec::new(), |mut vec, name| {
             self.0.open_tree(name).map(|tree| {
                 vec.push(tree);
                 vec
             })
-        })?;
+        }) {
+            Ok(trees) => trees,
+            Err(e) => return TransactionResult::Err(e),
+        };
         match trees.transaction(|trees| {
             let result = f(Transaction::new(trees, &names));
             match result {
                 // Returning `Ok` signals for the transaction to be committed
-                Ok(TransactionResult(TransactionResultType::Commit)) => Ok(()),
+                Ok(FinalizeTransaction(FinalizeTransactionType::Commit)) => Ok(()),
                 // Sled calls a transaction rollback an "abort"
-                Ok(TransactionResult(TransactionResultType::Rollback)) => {
+                Ok(FinalizeTransaction(FinalizeTransactionType::Rollback)) => {
                     Err(ConflictableTransactionError::Abort(()))
                 }
                 Err(e) => Err(ConflictableTransactionError::Storage(e)),
             }
         }) {
-            // The other possible error variant is `Abort`, which we map to `Ok` here
-            // as that just means the transaction was intentionally rolled back
-            Err(TransactionError::Storage(e)) => Err(e),
-            _ => Ok(()),
+            Ok(()) => TransactionResult::Ok(()),
+            Err(TransactionError::Storage(e)) => TransactionResult::Err(e),
+            Err(TransactionError::Abort(())) => TransactionResult::Rollback,
         }
     }
 }

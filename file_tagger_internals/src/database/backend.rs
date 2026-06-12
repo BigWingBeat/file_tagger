@@ -30,6 +30,12 @@ pub trait BuilderImpl {
     fn open(self) -> Result<Self::Database>;
 }
 
+pub enum TransactionResult<T = (), E = Error> {
+    Ok(T),
+    Err(E),
+    Rollback,
+}
+
 pub trait DatabaseImpl {
     type Table;
     type Transaction<'a>
@@ -38,8 +44,8 @@ pub trait DatabaseImpl {
     fn open_table(&self, name: &str) -> Result<Self::Table>;
     fn transaction(
         &self,
-        f: impl Fn(Self::Transaction<'_>) -> Result<TransactionResult>,
-    ) -> Result<()>;
+        f: impl Fn(Self::Transaction<'_>) -> Result<FinalizeTransaction>,
+    ) -> TransactionResult;
 }
 
 pub trait TableImpl {
@@ -56,10 +62,10 @@ pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedItera
 
 /// This type cannot be constructed outside of this module, so the only way to obtain
 /// an instance of it is by calling `commit` or `rollback`, which both consume `self`
-pub struct TransactionResult(TransactionResultType);
+pub struct FinalizeTransaction(FinalizeTransactionType);
 
 /// This type and the above tuple struct field should be private so that `TransactionResult` cannot be constructed outside this module
-enum TransactionResultType {
+enum FinalizeTransactionType {
     Commit,
     Rollback,
 }
@@ -79,11 +85,11 @@ pub trait TransactionImpl: Sized {
 
     fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()>;
 
-    fn commit(self) -> Result<TransactionResult> {
-        Ok(TransactionResult(TransactionResultType::Commit))
+    fn commit(self) -> Result<FinalizeTransaction> {
+        Ok(FinalizeTransaction(FinalizeTransactionType::Commit))
     }
 
-    fn rollback(self) -> TransactionResult {
-        TransactionResult(TransactionResultType::Rollback)
+    fn rollback(self) -> FinalizeTransaction {
+        FinalizeTransaction(FinalizeTransactionType::Rollback)
     }
 }
