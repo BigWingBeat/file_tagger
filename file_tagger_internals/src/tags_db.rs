@@ -11,11 +11,11 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    FOLDER_NAME,
+    DatabaseResult, FOLDER_NAME,
     app_data::RecentFolder,
     database::{
         self, AsBytes, Buffer, Bytes, CompositeKey, Database, DatabaseImpl, INLINE_SIZE,
-        InlineStrVec, Table, Transaction,
+        InlineStrVec, Table, Transaction, TransactionResult,
     },
 };
 
@@ -171,8 +171,11 @@ impl TagsDatabase {
         })
     }
 
-    pub fn transaction(&self) -> miette::Result<Transaction<'_>> {
-        self.database.transaction().into_diagnostic()
+    pub fn transaction(
+        &self,
+        f: impl Fn(Transaction<'_>) -> DatabaseResult<TransactionResult>,
+    ) -> DatabaseResult<()> {
+        self.database.transaction(f)
     }
 }
 

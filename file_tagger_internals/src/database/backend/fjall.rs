@@ -190,12 +190,4 @@ impl super::TransactionImpl for Transaction<'_> {
         self.0.remove(&table.0, key);
         Ok(())
     }
-
-    fn commit(self) -> Result<()> {
-        self.0.commit()
-    }
-
-    fn rollback(self) {
-        self.0.rollback()
-    }
 }

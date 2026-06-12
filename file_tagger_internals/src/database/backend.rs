@@ -1,6 +1,9 @@
 //! Defines the interface which is implemented by the backend modules
 
 cfg_select! {
+    all(feature = "backend_fjall", feature = "backend_sled") => {
+        compile_error!("You cannot have both database backend features active at the same time. You must choose either \"backend_fjall\" or \"backend_sled\".");
+    }
     feature = "backend_fjall" => {
         mod fjall;
         use fjall as backend;
@@ -8,6 +11,9 @@ cfg_select! {
     feature = "backend_sled" => {
         mod sled;
         use sled as backend;
+    }
+    _ => {
+        compile_error!("Neither database backend feature is active. You must choose either \"backend_fjall\" or \"backend_sled\".");
     }
 }
 
@@ -30,7 +36,10 @@ pub trait DatabaseImpl {
     where
         Self: 'a;
     fn open_table(&self, name: &str) -> Result<Self::Table>;
-    fn transaction(&self) -> Result<Self::Transaction<'_>>;
+    fn transaction(
+        &self,
+        f: impl Fn(Self::Transaction<'_>) -> Result<TransactionResult>,
+    ) -> Result<()>;
 }
 
 pub trait TableImpl {
@@ -45,17 +54,36 @@ pub trait TableImpl {
 
 pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedIterator {}
 
+/// This type cannot be constructed outside of this module, so the only way to obtain
+/// an instance of it is by calling `commit` or `rollback`, which both consume `self`
+pub struct TransactionResult(TransactionResultType);
+
+/// This type and the above tuple struct field should be private so that `TransactionResult` cannot be constructed outside this module
+enum TransactionResultType {
+    Commit,
+    Rollback,
+}
+
 /// Dropping the transaction type should default to rollback
-pub trait TransactionImpl {
+pub trait TransactionImpl: Sized {
     type Table;
+
     fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>>;
+
     fn insert(
         &mut self,
         table: &Self::Table,
         key: impl Into<Buffer>,
         value: impl Into<Buffer>,
     ) -> Result<()>;
+
     fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()>;
-    fn commit(self) -> Result<()>;
-    fn rollback(self);
+
+    fn commit(self) -> Result<TransactionResult> {
+        Ok(TransactionResult(TransactionResultType::Commit))
+    }
+
+    fn rollback(self) -> TransactionResult {
+        TransactionResult(TransactionResultType::Rollback)
+    }
 }

@@ -251,10 +251,8 @@ impl TransactionApi {
     }
 }
 
-impl TransactionImpl for TransactionApi {
-    type Table = UntypedTable;
-
-    fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> DatabaseResult<Option<Buffer>> {
+impl TransactionApi {
+    fn get(&self, table: &UntypedTable, key: impl Into<Buffer>) -> DatabaseResult<Option<Buffer>> {
         self.sender
             .send(TransAction::Get(table.clone(), key.into()))
             .unwrap();
@@ -266,7 +264,7 @@ impl TransactionImpl for TransactionApi {
 
     fn insert(
         &mut self,
-        table: &Self::Table,
+        table: &UntypedTable,
         key: impl Into<Buffer>,
         value: impl Into<Buffer>,
     ) -> DatabaseResult<()> {
@@ -279,7 +277,7 @@ impl TransactionImpl for TransactionApi {
         result
     }
 
-    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> DatabaseResult<()> {
+    fn remove(&mut self, table: &UntypedTable, key: impl Into<Buffer>) -> DatabaseResult<()> {
         self.sender
             .send(TransAction::Remove(table.clone(), key.into()))
             .unwrap();
@@ -321,37 +319,37 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
         app_state.active_transaction = api;
         let db = app_state.database.inner_db_handle().clone();
         std::thread::spawn(move || {
-            let mut transaction = db.transaction().unwrap();
-            while let Ok(action) = receiver.recv() {
-                match action {
-                    TransAction::Get(table, key) => {
-                        sender
-                            .send(TransReaction::Get(transaction.get(&table, key)))
-                            .unwrap();
+            let result = db.transaction(|mut transaction| {
+                // This must always send a `TransReaction` back after each received `TransAction`, otherwise it will deadlock
+                while let Ok(action) = receiver.recv() {
+                    match action {
+                        TransAction::Get(table, key) => {
+                            sender
+                                .send(TransReaction::Get(transaction.get(&table, key)))
+                                .unwrap();
+                        }
+                        TransAction::Insert(table, key, value) => {
+                            sender
+                                .send(TransReaction::Insert(
+                                    transaction.insert(&table, key, value),
+                                ))
+                                .unwrap();
+                        }
+                        TransAction::Remove(table, key) => {
+                            sender
+                                .send(TransReaction::Remove(transaction.remove(&table, key)))
+                                .unwrap();
+                        }
+                        TransAction::Commit => return transaction.commit(),
+                        TransAction::Rollback => break,
                     }
-                    TransAction::Insert(table, key, value) => {
-                        sender
-                            .send(TransReaction::Insert(
-                                transaction.insert(&table, key, value),
-                            ))
-                            .unwrap();
-                    }
-                    TransAction::Remove(table, key) => {
-                        sender
-                            .send(TransReaction::Remove(transaction.remove(&table, key)))
-                            .unwrap();
-                    }
-                    TransAction::Commit => {
-                        sender
-                            .send(TransReaction::Commit(transaction.commit()))
-                            .unwrap();
-                        return;
-                    }
-                    TransAction::Rollback => break,
                 }
-            }
-            // Either we explicitly received a `Rollback` action, or the sender was disconnected
-            transaction.rollback();
+                // Either we explicitly received a `Rollback` action, or the sender was disconnected
+                Ok(transaction.rollback())
+            });
+            // The `Err` variant of this result is always a `Commit` error, as rollbacks are infallible,
+            // and we eat the results of every non-terminal action
+            sender.send(TransReaction::Commit(result)).unwrap();
         });
         (NoElement, view_state)
     }

@@ -1,5 +1,17 @@
 use std::path::Path;
 
+use sled::{
+    Transactional,
+    transaction::{
+        ConflictableTransactionError, TransactionError, TransactionalTree,
+        UnabortableTransactionError,
+    },
+};
+
+use super::{TransactionResult, TransactionResultType};
+
+pub type Error = sled::Error;
+
 pub type Result<T> = sled::Result<T>;
 
 pub type Buffer = sled::IVec;
@@ -36,18 +48,57 @@ impl super::BuilderImpl for Builder {
     }
 }
 
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct Database(sled::Db);
 
 impl super::DatabaseImpl for Database {
     type Table = Table;
 
+    type Transaction<'a> = Transaction<'a>;
+
     #[inline(always)]
     fn open_table(&self, name: &str) -> Result<Self::Table> {
         self.0.open_tree(name).map(Table)
     }
+
+    fn transaction(
+        &self,
+        f: impl Fn(Self::Transaction<'_>) -> Result<TransactionResult>,
+    ) -> Result<()> {
+        // Sled requires us to specify all of the trees involved in a transaction upfront,
+        // whereas Fjall allows specifying any keyspace for each operation in the transaction.
+        // To emulate the latter with the former, we initiate the transaction with *every* tree in the database.
+        // Sled's trees are not `PartialEq` though, so we use the "name" of the trees as the key for comparisons.
+        let names = self.0.tree_names();
+        // `try_collect` is unstable
+        let trees = names.iter().try_fold(Vec::new(), |mut vec, name| {
+            self.0.open_tree(name).map(|tree| {
+                vec.push(tree);
+                vec
+            })
+        })?;
+        match trees.transaction(|trees| {
+            let result = f(Transaction::new(trees, &names));
+            match result {
+                // Returning `Ok` signals for the transaction to be committed
+                Ok(TransactionResult(TransactionResultType::Commit)) => Ok(()),
+                // Sled calls a transaction rollback an "abort"
+                Ok(TransactionResult(TransactionResultType::Rollback)) => {
+                    Err(ConflictableTransactionError::Abort(()))
+                }
+                Err(e) => Err(ConflictableTransactionError::Storage(e)),
+            }
+        }) {
+            // The other possible error variant is `Abort`, which we map to `Ok` here
+            // as that just means the transaction was intentionally rolled back
+            Err(TransactionError::Storage(e)) => Err(e),
+            _ => Ok(()),
+        }
+    }
 }
 
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct Table(sled::Tree);
 
@@ -64,6 +115,10 @@ impl super::TableImpl for Table {
         self.0.insert(key, value).map(|_| ())
     }
 
+    fn remove(&self, key: impl AsRef<[u8]>) -> Result<()> {
+        self.0.remove(key).map(|_| ())
+    }
+
     #[inline(always)]
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>> {
         self.0.first()
@@ -76,7 +131,7 @@ impl super::TableImpl for Table {
 
     #[inline(always)]
     fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter {
-        self.0.scan_prefix(prefix)
+        Iter(self.0.scan_prefix(prefix))
     }
 }
 
@@ -98,3 +153,63 @@ impl DoubleEndedIterator for Iter {
 }
 
 impl super::IterImpl for Iter {}
+
+pub struct Transaction<'a> {
+    trees: &'a [TransactionalTree],
+    names: &'a [Buffer],
+}
+
+impl<'a> Transaction<'a> {
+    fn new(trees: &'a [TransactionalTree], names: &'a [Buffer]) -> Self {
+        assert_eq!(trees.len(), names.len());
+        Self { trees, names }
+    }
+
+    fn find_tree(&self, table: &Table) -> Result<&TransactionalTree> {
+        self.trees
+            .iter()
+            .zip(self.names)
+            .find_map(|(tree, name)| (table.0.name() == name).then_some(tree))
+            .ok_or_else(|| {
+                Error::Unsupported(
+                    "cannot use trees from multiple databases in the same transaction".to_owned(),
+                )
+            })
+    }
+
+    fn transact<T>(
+        &self,
+        table: &Table,
+        f: impl FnOnce(&TransactionalTree) -> std::result::Result<T, UnabortableTransactionError>,
+    ) -> Result<T> {
+        self.find_tree(table).and_then(|tree| {
+            f(tree).map_err(|e| match e {
+                UnabortableTransactionError::Conflict => {
+                    unreachable!("We don't do concurrency")
+                }
+                UnabortableTransactionError::Storage(e) => e,
+            })
+        })
+    }
+}
+
+impl super::TransactionImpl for Transaction<'_> {
+    type Table = Table;
+
+    fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
+        self.transact(table, |tree| tree.get(key.into()))
+    }
+
+    fn insert(
+        &mut self,
+        table: &Self::Table,
+        key: impl Into<Buffer>,
+        value: impl Into<Buffer>,
+    ) -> Result<()> {
+        self.transact(table, |tree| tree.insert(key.into(), value).map(|_| ()))
+    }
+
+    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()> {
+        self.transact(table, |tree| tree.remove(key.into()).map(|_| ()))
+    }
+}

@@ -8,7 +8,7 @@ mod backend;
 
 pub use backend::{
     Buffer, Database, DatabaseImpl, Error, Result, Table as UntypedTable, Transaction,
-    TransactionImpl,
+    TransactionImpl, TransactionResult,
 };
 use backend::{Builder, BuilderImpl, TableImpl};
 
@@ -165,7 +165,7 @@ impl AsRef<[u8]> for InlineStrVec {
 impl InlineStrVec {
     pub fn empty() -> Self {
         Self {
-            buffer: backend::Buffer::empty(),
+            buffer: backend::Buffer::default(),
         }
     }
 
