@@ -12,7 +12,10 @@ pub use backend::{
     Transaction, TransactionImpl, TransactionResult,
 };
 use backend::{Builder, BuilderImpl, TableImpl};
-pub use transaction::{TransactionApi, TransactionHandle, initialize_transaction};
+pub use transaction::{
+    TransactionApi as UntypedTransactionApi, TransactionHandle,
+    initialize_transaction as initialize_untyped_transaction,
+};
 
 /// A bit like a [`Cow`], but defined by the owned form of the type, instead of by the borrowed form.
 /// This is needed, instead of just using `Cow`, as we are fixing the borrowed form to be `&[u8]`, and letting the
@@ -27,7 +30,7 @@ where
 
 impl<B: AsRef<[u8]>> AsRef<[u8]> for Bytes<'_, B> {
     fn as_ref(&self) -> &[u8] {
-        // These tro branches seemingly can't be folded into one, despite having identical bodies, for some reason...
+        // These two branches seemingly can't be folded into one, despite having identical bodies, for some reason...
         match self {
             Bytes::Borrowed(b) => b.as_ref(),
             Bytes::Owned(b) => b.as_ref(),
@@ -78,7 +81,7 @@ impl<'a, T> Key<'a> for T where T: Serde<'a> {}
 
 /// A strongly-typed wrapper around a single keyspace
 pub struct Table<Key, Value> {
-    database: backend::Table,
+    table: backend::Table,
     marker: PhantomData<(Key, Value)>,
 }
 
@@ -86,7 +89,7 @@ pub struct Table<Key, Value> {
 impl<Key, Value> Clone for Table<Key, Value> {
     fn clone(&self) -> Self {
         Self {
-            database: self.database.clone(),
+            table: self.table.clone(),
             marker: PhantomData,
         }
     }
@@ -98,33 +101,37 @@ where
     Value: for<'a> self::Value<'a>,
 {
     pub fn open(database: &backend::Database, name: &str) -> backend::Result<Self> {
-        database.open_table(name).map(|database| Self {
-            database,
+        database.open_table(name).map(|table| Self {
+            table,
             marker: PhantomData,
         })
     }
 
     /// Retrieve a value from the `Table` if it exists.
     pub fn get(&self, key: &Key) -> miette::Result<Option<Value>> {
-        Self::parse_result(self.database.get(key.as_bytes()))
+        Self::parse_result(self.table.get(key.as_bytes()))
     }
 
-    /// Insert a key to a new value, overwriting any existing value
+    /// Insert a key to a new value, overwriting any existing value.
     pub fn insert(&self, key: &Key, value: &Value) -> backend::Result<()> {
-        self.database
-            .insert(key.as_bytes(), value.as_bytes().as_ref())
+        self.table.insert(key.as_bytes(), value.as_bytes().as_ref())
+    }
+
+    /// Remove a key and its associated value from the table.
+    pub fn remove(&self, key: &Key) -> backend::Result<()> {
+        self.table.remove(key.as_bytes())
     }
 
     pub fn first_kv(&self) -> miette::Result<Option<(Key, Value)>> {
-        Self::parse_kv_result(self.database.first_kv())
+        Self::parse_kv_result(self.table.first_kv())
     }
 
     pub fn last_kv(&self) -> miette::Result<Option<(Key, Value)>> {
-        Self::parse_kv_result(self.database.last_kv())
+        Self::parse_kv_result(self.table.last_kv())
     }
 
     pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> backend::Iter {
-        self.database.prefix(prefix)
+        self.table.prefix(prefix)
     }
 
     fn parse_result(
@@ -150,6 +157,70 @@ where
             Err(e) => Err(e).into_diagnostic(),
         }
     }
+}
+
+/// Typed wrapper around an untyped transaction
+pub struct TransactionApi(UntypedTransactionApi);
+
+impl TransactionApi {
+    /// Used similarly to `Database::create_temporary`, should be replaced when Xilem's enum state ergonomics get better
+    pub fn new_disconnected() -> Self {
+        Self(UntypedTransactionApi::new_disconnected())
+    }
+
+    pub fn get<Key, Value>(
+        &self,
+        table: &Table<Key, Value>,
+        key: &Key,
+    ) -> miette::Result<Option<Value>>
+    where
+        Key: for<'a> self::Key<'a>,
+        Value: for<'a> self::Value<'a>,
+    {
+        Table::<Key, Value>::parse_result(self.0.get(&table.table, key.as_bytes().as_ref()))
+    }
+
+    pub fn insert<Key, Value>(
+        &mut self,
+        table: &Table<Key, Value>,
+        key: &Key,
+        value: &Value,
+    ) -> backend::Result<()>
+    where
+        Key: for<'a> self::Key<'a>,
+        Value: for<'a> self::Value<'a>,
+    {
+        self.0.insert(
+            &table.table,
+            key.as_bytes().as_ref(),
+            value.as_bytes().as_ref(),
+        )
+    }
+
+    pub fn remove<Key, Value>(
+        &mut self,
+        table: &Table<Key, Value>,
+        key: &Key,
+    ) -> backend::Result<()>
+    where
+        Key: for<'a> self::Key<'a>,
+        Value: for<'a> self::Value<'a>,
+    {
+        self.0.remove(&table.table, key.as_bytes().as_ref())
+    }
+
+    pub fn commit(self) -> backend::Result<()> {
+        self.0.commit()
+    }
+
+    pub fn rollback(self) {
+        self.0.rollback()
+    }
+}
+
+pub fn initialize_transaction(db: Database) -> (TransactionApi, TransactionHandle) {
+    let (api, handle) = initialize_untyped_transaction(db);
+    (TransactionApi(api), handle)
 }
 
 /// Like a `Vec<String>` but where all the strings are stored inline in a single heap allocation.

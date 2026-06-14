@@ -11,12 +11,12 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    DatabaseResult, FOLDER_NAME,
+    FOLDER_NAME, TransactionApi, TransactionHandle,
     app_data::RecentFolder,
     database::{
-        self, AsBytes, Buffer, Bytes, CompositeKey, Database, DatabaseImpl, FinalizeTransaction,
-        INLINE_SIZE, InlineStrVec, Table, Transaction, TransactionResult,
+        self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
     },
+    initialize_transaction,
 };
 
 pub struct DatabaseState {
@@ -171,11 +171,8 @@ impl TagsDatabase {
         })
     }
 
-    pub fn transaction(
-        &self,
-        f: impl Fn(Transaction<'_>) -> DatabaseResult<FinalizeTransaction>,
-    ) -> TransactionResult {
-        self.database.transaction(f)
+    pub fn initialize_transaction(&self) -> (TransactionApi, TransactionHandle) {
+        initialize_transaction(self.database.clone())
     }
 }
 

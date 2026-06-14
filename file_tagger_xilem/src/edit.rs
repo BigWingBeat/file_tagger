@@ -1,4 +1,4 @@
-use file_tagger_internals::{Tag, TransactionHandle, initialize_transaction};
+use file_tagger_internals::{Tag, TransactionHandle};
 use xilem::{
     FontWeight, ViewCtx, WidgetView,
     core::{MessageCtx, MessageResult, Mut, NoElement, View, ViewMarker, fork, one_of::Either},
@@ -216,7 +216,7 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
         app_state: &mut XilemAppState,
     ) -> (Self::Element, Self::ViewState) {
         let db = app_state.database.inner_db_handle().clone();
-        let (api, handle) = initialize_transaction(db);
+        let (api, handle) = db.initialize_transaction();
         app_state.active_transaction = api;
         (NoElement, handle)
     }
