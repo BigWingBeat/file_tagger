@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use file_tagger_internals::{ActiveOverlay, ActiveView, AppState};
+use file_tagger_internals::{ActiveOverlay, ActiveView, AppState, TransactionApi};
 use miette::{IntoDiagnostic, MietteHandlerOpts};
 use xilem::{
     EventLoop, ViewCtx, WidgetView, WindowOptions, Xilem,
@@ -11,7 +11,6 @@ use xilem::{
 
 use crate::{
     assets::Assets,
-    edit::TransactionApi,
     view::{
         edit_view, error_view, launcher_view, search_menu_view, search_results_view, spinner_view,
     },

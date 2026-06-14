@@ -1,8 +1,4 @@
-use std::sync::mpsc::{Receiver, SyncSender};
-
-use file_tagger_internals::{
-    Buffer, DatabaseError, DatabaseResult, Tag, TransactionImpl, TransactionResult, UntypedTable,
-};
+use file_tagger_internals::{Tag, TransactionHandle, initialize_transaction};
 use xilem::{
     FontWeight, ViewCtx, WidgetView,
     core::{MessageCtx, MessageResult, Mut, NoElement, View, ViewMarker, fork, one_of::Either},
@@ -205,101 +201,6 @@ pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
     )
 }
 
-/// This is the message type passed over a channel to allow the GUI to control the transaction
-enum TransAction {
-    Get(UntypedTable, Buffer),
-    Insert(UntypedTable, Buffer, Buffer),
-    Remove(UntypedTable, Buffer),
-    Commit,
-    Rollback,
-}
-
-/// This is the message type passed back from the transaction thread with the result of the action.
-/// There is no corresponding `Rollback` variant because that is an infallible operation
-enum TransReaction {
-    Get(Result<Option<Buffer>, DatabaseError>),
-    Insert(Result<(), DatabaseError>),
-    Remove(Result<(), DatabaseError>),
-    Commit(Result<(), DatabaseError>),
-}
-
-/// Talks to the transaction thread
-pub struct TransactionApi {
-    sender: SyncSender<TransAction>,
-    receiver: Receiver<TransReaction>,
-}
-
-impl TransactionApi {
-    /// Used similarly to `Database::create_temporary`, should be replaced when Xilem's enum state ergonomics get better
-    pub fn new_disconnected() -> Self {
-        Self::new().0
-    }
-
-    fn new() -> (Self, Receiver<TransAction>, SyncSender<TransReaction>) {
-        // Capacities of 0 because we always wait to get a result back right after sending an action,
-        // so it's not possible for multiple messages to get queued up on either channel
-        let (action_sender, action_receiver) = std::sync::mpsc::sync_channel(0);
-        let (reaction_sender, reaction_receiver) = std::sync::mpsc::sync_channel(0);
-        (
-            Self {
-                sender: action_sender,
-                receiver: reaction_receiver,
-            },
-            action_receiver,
-            reaction_sender,
-        )
-    }
-}
-
-impl TransactionApi {
-    fn get(&self, table: &UntypedTable, key: impl Into<Buffer>) -> DatabaseResult<Option<Buffer>> {
-        self.sender
-            .send(TransAction::Get(table.clone(), key.into()))
-            .unwrap();
-        let TransReaction::Get(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
-    }
-
-    fn insert(
-        &mut self,
-        table: &UntypedTable,
-        key: impl Into<Buffer>,
-        value: impl Into<Buffer>,
-    ) -> DatabaseResult<()> {
-        self.sender
-            .send(TransAction::Insert(table.clone(), key.into(), value.into()))
-            .unwrap();
-        let TransReaction::Insert(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
-    }
-
-    fn remove(&mut self, table: &UntypedTable, key: impl Into<Buffer>) -> DatabaseResult<()> {
-        self.sender
-            .send(TransAction::Remove(table.clone(), key.into()))
-            .unwrap();
-        let TransReaction::Remove(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
-    }
-
-    fn commit(self) -> DatabaseResult<()> {
-        self.sender.send(TransAction::Commit).unwrap();
-        let TransReaction::Commit(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
-    }
-
-    fn rollback(self) {
-        self.sender.send(TransAction::Rollback).unwrap();
-    }
-}
-
 /// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
 struct TransactionWorker;
 
@@ -307,54 +208,17 @@ impl ViewMarker for TransactionWorker {}
 impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
     type Element = NoElement;
 
-    type ViewState = SyncSender<TransAction>;
+    type ViewState = TransactionHandle;
 
     fn build(
         &self,
         _ctx: &mut ViewCtx,
         app_state: &mut XilemAppState,
     ) -> (Self::Element, Self::ViewState) {
-        let (api, receiver, sender) = TransactionApi::new();
-        let view_state = api.sender.clone();
-        app_state.active_transaction = api;
         let db = app_state.database.inner_db_handle().clone();
-        std::thread::spawn(move || {
-            let result = db.transaction(|mut transaction| {
-                // This must always send a `TransReaction` back after each received `TransAction`, otherwise it will deadlock
-                while let Ok(action) = receiver.recv() {
-                    match action {
-                        TransAction::Get(table, key) => {
-                            sender
-                                .send(TransReaction::Get(transaction.get(&table, key)))
-                                .unwrap();
-                        }
-                        TransAction::Insert(table, key, value) => {
-                            sender
-                                .send(TransReaction::Insert(
-                                    transaction.insert(&table, key, value),
-                                ))
-                                .unwrap();
-                        }
-                        TransAction::Remove(table, key) => {
-                            sender
-                                .send(TransReaction::Remove(transaction.remove(&table, key)))
-                                .unwrap();
-                        }
-                        TransAction::Commit => return transaction.commit(),
-                        TransAction::Rollback => break,
-                    }
-                }
-                // Either we explicitly received a `Rollback` action, or the sender was disconnected
-                Ok(transaction.rollback())
-            });
-            // We eat the results of every non-terminal action, so this is always a `Commit` result
-            match result {
-                TransactionResult::Ok(()) => sender.send(TransReaction::Commit(Ok(()))).unwrap(),
-                TransactionResult::Err(e) => sender.send(TransReaction::Commit(Err(e))).unwrap(),
-                TransactionResult::Rollback => {}
-            }
-        });
-        (NoElement, view_state)
+        let (api, handle) = initialize_transaction(db);
+        app_state.active_transaction = api;
+        (NoElement, handle)
     }
 
     fn rebuild(
@@ -374,14 +238,14 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
 
     fn teardown(
         &self,
-        view_state: &mut Self::ViewState,
+        _view_state: &mut Self::ViewState,
         _ctx: &mut ViewCtx,
         _element: Mut<'_, Self::Element>,
     ) {
         // `teardown` means this `View` is no longer in the UI tree, which means we have left the `edit` view entirely.
         // This should only be possible by pressing either the "cancel" or "save changes" buttons, both of which
-        // should finalize the transaction and terminate the thread on their own, so this is more of a fail-safe.
-        let _ = view_state.send(TransAction::Rollback);
+        // should finalize the transaction and terminate the thread on their own. As a failsafe, the `ViewState` type
+        // will be dropped shortly after this function returns, which will attempt to finalize the transaction anyway.
     }
 
     fn message(

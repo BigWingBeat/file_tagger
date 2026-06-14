@@ -10,7 +10,8 @@ pub use crate::{
     app_data::{AppData, RecentFolder},
     database::{
         Buffer, Error as DatabaseError, FinalizeTransaction, Result as DatabaseResult, Table,
-        Transaction, TransactionImpl, TransactionResult, UntypedTable,
+        Transaction, TransactionApi, TransactionHandle, TransactionImpl, TransactionResult,
+        UntypedTable, initialize_transaction,
     },
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };

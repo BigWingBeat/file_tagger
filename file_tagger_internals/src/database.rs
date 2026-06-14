@@ -5,12 +5,14 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 mod backend;
+mod transaction;
 
 pub use backend::{
     Buffer, Database, DatabaseImpl, Error, FinalizeTransaction, Result, Table as UntypedTable,
     Transaction, TransactionImpl, TransactionResult,
 };
 use backend::{Builder, BuilderImpl, TableImpl};
+pub use transaction::{TransactionApi, TransactionHandle, initialize_transaction};
 
 /// A bit like a [`Cow`], but defined by the owned form of the type, instead of by the borrowed form.
 /// This is needed, instead of just using `Cow`, as we are fixing the borrowed form to be `&[u8]`, and letting the
