@@ -4,7 +4,7 @@ use miette::IntoDiagnostic;
 use thiserror::Error;
 
 use crate::{
-    FOLDER_NAME,
+    APP_DATA_FOLDER_NAME,
     database::{self, Database, InlineStrVec, Table},
 };
 
@@ -43,7 +43,7 @@ pub struct AppData {
 impl AppData {
     pub fn open() -> miette::Result<Self> {
         let mut path = dirs::data_local_dir().unwrap();
-        path.push(FOLDER_NAME);
+        path.push(APP_DATA_FOLDER_NAME);
         database::open(path)
             .into_diagnostic()
             .and_then(Self::open_tables)

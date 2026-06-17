@@ -17,4 +17,5 @@ pub use crate::{
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };
 
-const FOLDER_NAME: &str = ".file_tagger";
+const DB_FOLDER_NAME: &str = ".file_tagger";
+const APP_DATA_FOLDER_NAME: &str = "file_tagger";

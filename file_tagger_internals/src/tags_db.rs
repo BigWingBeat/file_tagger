@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    FOLDER_NAME, TransactionApi, TransactionHandle,
+    DB_FOLDER_NAME, TransactionApi, TransactionHandle,
     app_data::RecentFolder,
     database::{
         self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
@@ -42,7 +42,7 @@ impl DatabaseState {
 
     pub fn open_in_folder(&mut self, folder: RecentFolder) -> miette::Result<&mut TagsDatabase> {
         let mut db_folder = folder.clone();
-        db_folder.path.push(FOLDER_NAME);
+        db_folder.path.push(DB_FOLDER_NAME);
         std::fs::create_dir(&db_folder.path)
             .or_else(|e| {
                 // Ignore error if the dir already exists, as that's fine
