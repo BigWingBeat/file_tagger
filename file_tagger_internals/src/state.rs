@@ -1,21 +1,102 @@
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    ops::{Deref, DerefMut},
+    path::PathBuf,
+};
 
 use miette::{IntoDiagnostic, Report};
 
 use crate::{AppData, DatabaseState, Entry, Tag};
 
-#[derive(Default, Clone, Copy)]
-pub enum ActiveView {
+/// Generates wrapper types for data inside the enum because dealing with `{}`-style enum variants directly is annoying
+/// (Would enum variants as types makes this nicer?)
+macro_rules! app_state {
+	( $name:ident = $( $(#[$meta:meta])* $variant:ident { $($v:vis $field:ident: $t:ty),* $(,)* } ),* $(,)* ) => {
+	    $(
+            pub struct $variant<Next = $name<()>> { pub next_state: Option<Next>, $($v $field: $t),* }
+
+            impl<Next> $variant<Next> {
+                pub fn new($($field: $t),*) -> Self {
+                    Self { next_state: None, $($field),* }
+                }
+            }
+
+            impl From<$variant<()>> for $variant {
+                fn from(_value: $variant<()>) -> Self {
+                    Self { next_state: None, $($field: _value.$field),* }
+                }
+            }
+
+            impl<Next> From<$variant<Next>> for $name<Next> {
+                fn from(value: $variant<Next>) -> Self {
+                    Self::$variant(value)
+                }
+            }
+        )*
+
+		pub enum $name<Next = $name<()>> {
+			$( $(#[$meta])* $variant ($variant<Next>) ),*
+		}
+
+        impl From<$name<()>> for $name {
+            fn from(value: $name<()>) -> Self {
+                match value {
+                    $( $name::$variant(inner) => Self::$variant(inner.into()) ),*
+                }
+            }
+        }
+
+        impl $name {
+            pub fn update_to_next(&mut self) {
+                let next = match self {
+                    $( $name::$variant(inner) => inner.next_state.take() ),*
+                };
+
+                if let Some(next) = next {
+                    *self = next.into();
+                }
+            }
+        }
+	};
+}
+
+app_state! {
+    ActiveView =
+
+    /// Startup view while the persistent AppData database is being opened
+    Loading {},
+
     /// No database is open. Buttons for opening/creating a database
-    #[default]
-    Launcher,
+    Launcher {
+        pub persistent: AppData,
+    },
     /// A database is open. Buttons for opening/creating a database, plus a search bar.
     /// Automatically open previously opened database to this view on startup, if possible
-    SearchMenu,
+    SearchMenu {
+        database: DatabaseState,
+        persistent: AppData,
+        pub search_bar: String,
+    },
     /// Grid of search results, plus a search bar, and button to go back to `SearchMenu`
-    SearchResults,
+    SearchResults {
+        database: DatabaseState,
+        persistent: AppData,
+        entries: Vec<EditEntry>,
+    },
     /// Edit tags of entries, and create new entries (tags) to use
-    Edit,
+    Edit {
+        database: DatabaseState,
+        persistent: AppData,
+        entries: Vec<EditEntry>,
+        pub tag_search_bar_state: String,
+        pub tag_create_name_state: String,
+    },
+}
+
+impl SearchResults {
+    pub fn entries(&self) -> &[EditEntry] {
+        &self.entries
+    }
 }
 
 #[derive(Default)]
@@ -27,11 +108,6 @@ pub enum ActiveOverlay {
     Error(Report),
     /// Waiting for something to happen on another thread (e.g. async)
     Spinner,
-}
-
-#[derive(Default)]
-pub struct SearchBarState {
-    pub search_text: String,
 }
 
 pub struct EditEntry {
@@ -51,25 +127,7 @@ impl EditEntry {
     }
 }
 
-#[derive(Default)]
-pub struct SearchResultsState {
-    entries: Vec<EditEntry>,
-}
-
-impl SearchResultsState {
-    pub fn entries(&self) -> &[EditEntry] {
-        &self.entries
-    }
-}
-
-#[derive(Default)]
-pub struct EditState {
-    entries: Vec<EditEntry>,
-    pub tag_search_bar_state: String,
-    pub tag_create_name_state: String,
-}
-
-impl EditState {
+impl Edit {
     pub fn entries(&self) -> &[EditEntry] {
         &self.entries
     }
@@ -133,11 +191,6 @@ impl EditState {
 pub struct AppState {
     pub active_view: ActiveView,
     pub active_overlay: ActiveOverlay,
-    pub search_menu: SearchBarState,
-    pub search_results: SearchResultsState,
-    pub database: DatabaseState,
-    pub persistent: AppData,
-    pub edit: EditState,
 }
 
 macro_rules! set_err {
@@ -154,6 +207,22 @@ macro_rules! set_err {
 }
 
 impl AppState {
+    pub fn new() -> Self {
+        match AppData::open() {
+            Ok(persistent) => Self {
+                active_view: Loading {
+                    next_state: Some(Launcher::new(persistent).into()),
+                }
+                .into(),
+                active_overlay: ActiveOverlay::None,
+            },
+            Err(e) => Self {
+                active_view: Loading::new().into(),
+                active_overlay: ActiveOverlay::Error(e),
+            },
+        }
+    }
+
     /// The user picks a folder, and a database is created or opened in that folder
     pub fn open_database_in_folder(&mut self, folder: PathBuf) {
         self.open_database(folder);
@@ -232,21 +301,5 @@ impl AppState {
                     None
                 }
             })
-    }
-}
-
-impl AppState {
-    pub fn new() -> miette::Result<Self> {
-        let database = DatabaseState::create_temporary()?;
-        let persistent = AppData::open()?;
-        Ok(Self {
-            active_view: Default::default(),
-            active_overlay: Default::default(),
-            search_menu: Default::default(),
-            search_results: Default::default(),
-            database,
-            persistent,
-            edit: Default::default(),
-        })
     }
 }

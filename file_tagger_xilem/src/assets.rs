@@ -12,8 +12,17 @@ pub struct Assets {
 }
 
 impl Assets {
-    pub fn new() -> Result<Self, usvg::Error> {
-        let tag = Tree::from_str(TAG_SVG, &Default::default())?;
-        Ok(Self { tag: Arc::new(tag) })
+    pub fn new() -> Self {
+        // Asset data is embedded at compile time via `include_str!` so unwrapping is probably fine
+        let tag = Tree::from_str(TAG_SVG, &Default::default()).unwrap();
+        Self { tag: Arc::new(tag) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn assets_are_valid() {
+        let _ = super::Assets::new();
     }
 }

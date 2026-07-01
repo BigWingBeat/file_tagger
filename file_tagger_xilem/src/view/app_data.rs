@@ -1,3 +1,4 @@
+use file_tagger_internals::Launcher;
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
@@ -10,7 +11,7 @@ use xilem::{
 
 use crate::XilemAppState;
 
-pub fn recent_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn recent_list(state: &mut Launcher) -> impl WidgetView<XilemAppState> + use<> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
     // Instead, they are always as wide as possible
     flex_col(
@@ -43,7 +44,7 @@ pub fn recent_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> 
     .dims(Dimensions::width(Dim::Stretch))
 }
 
-pub fn recent_list_portal(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn recent_list_portal(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     flex_col((
         prose("Open Recent")
             .weight(FontWeight::BOLD)

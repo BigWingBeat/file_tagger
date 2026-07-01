@@ -1,4 +1,4 @@
-use file_tagger_internals::{Tag, TransactionHandle};
+use file_tagger_internals::{Edit, Tag, TransactionHandle};
 use xilem::{
     FontWeight, ViewCtx, WidgetView,
     core::{MessageCtx, MessageResult, Mut, NoElement, View, ViewMarker, fork, one_of::Either},
@@ -194,7 +194,7 @@ fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<>
     ))
 }
 
-pub fn edit(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+pub fn edit(state: &mut Edit) -> impl WidgetView<Edit> {
     fork(
         flex_col((entry_list(state), tag_list(state))).padding(10.px()),
         TransactionWorker,

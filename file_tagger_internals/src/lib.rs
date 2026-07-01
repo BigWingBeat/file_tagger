@@ -1,18 +1,18 @@
 mod app_data;
-mod app_state;
 mod database;
+mod state;
 mod tags_db;
 
 pub use crate::{
     app_data::{AppData, RecentFolder},
-    app_state::{
-        ActiveOverlay, ActiveView, AppState, EditEntry, EditState, SearchBarState,
-        SearchResultsState,
-    },
     database::{
         Buffer, Error as DatabaseError, FinalizeTransaction, Result as DatabaseResult, Table,
         Transaction, TransactionApi, TransactionHandle, TransactionImpl, TransactionResult,
         UntypedTable, UntypedTransactionApi, initialize_transaction,
+    },
+    state::{
+        ActiveOverlay, ActiveView, AppState, Edit, EditEntry, Launcher, Loading, SearchMenu,
+        SearchResults,
     },
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };

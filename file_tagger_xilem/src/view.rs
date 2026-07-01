@@ -1,9 +1,9 @@
 //! Functions that define all the top-level views and handle state lensing
-use std::{fmt::Debug, ops::DerefMut};
+use std::{fmt::Debug, marker::PhantomData, ops::DerefMut};
 
 use xilem::{
     FontWeight, WidgetView,
-    core::{fork, lens, map_state},
+    core::{View, ViewMarker, ViewPathTracker, fork, lens, map_state},
     masonry::{
         layout::{AsUnit, Dim},
         parley::GenericFamily,
@@ -18,10 +18,17 @@ use xilem::{
     },
 };
 
-use file_tagger_internals::DatabaseState;
+use file_tagger_internals::{DatabaseState, Edit, Launcher, Loading, SearchMenu, SearchResults};
 
-use crate::{
-    XilemAppState,
+mod app_data;
+mod edit;
+mod launcher;
+mod search_menu;
+mod search_results;
+
+use crate::XilemAppState;
+
+use {
     edit::edit,
     launcher::launcher,
     search_menu::{edit_buttons, search_bar},
@@ -62,13 +69,17 @@ container_view! {
     }
 }
 
-pub fn launcher_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn loading_view(state: &mut Loading) -> impl WidgetView<Loading> + use<> {
+    centered_flex_box(flex_col((spinner().dims(40.px()), prose("Loading..."))))
+}
+
+pub fn launcher_view(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     centered_box((launcher(state), FlexSpacer::Flex(1.0)))
 }
 
-pub fn search_menu_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn search_menu_view(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> + use<> {
     centered_box((
-        lens(active_folder_name, |state: &mut XilemAppState| {
+        lens(active_folder_name, |state: &mut SearchMenu| {
             &mut state.database
         }),
         search_bar(state),
@@ -78,21 +89,21 @@ pub fn search_menu_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppSt
     ))
 }
 
-pub fn search_results_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn search_results_view(state: &mut SearchResults) -> impl WidgetView<SearchResults> + use<> {
     centered_box((
-        lens(active_folder_name, |state: &mut XilemAppState| {
+        lens(active_folder_name, |state: &mut SearchResults| {
             &mut state.database
         }),
         search_bar(state),
         edit_buttons(state),
-        lens(search_results, |state: &mut XilemAppState| {
+        lens(search_results, |state: &mut SearchResults| {
             &mut state.search_results
         })
         .flex(1.0),
     ))
 }
 
-pub fn edit_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+pub fn edit_view(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     edit(state)
 }
 

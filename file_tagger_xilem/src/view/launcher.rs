@@ -11,7 +11,7 @@ use xilem::{
     },
 };
 
-use file_tagger_internals::{ActiveOverlay, AppState};
+use file_tagger_internals::{ActiveOverlay, AppState, Launcher};
 
 use crate::{XilemAppState, app_data::recent_list_portal};
 
@@ -19,7 +19,7 @@ use crate::{XilemAppState, app_data::recent_list_portal};
 /// that already exists there.
 /// The "create" button selects a folder, and creates a *new* empty folder there, with a specified name, as well as
 /// creating a new database in the new folder.
-fn open_create_buttons(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<XilemAppState> + use<> {
     // These buttons should be the same width and height
     flex_col((
         flex_row((
@@ -86,7 +86,7 @@ fn open_create_buttons(state: &mut XilemAppState) -> impl WidgetView<XilemAppSta
     .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
 }
 
-pub fn launcher(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+pub fn launcher(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     flex_row((
         flex_item(recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),
