@@ -14,10 +14,7 @@ use xilem::{
     },
 };
 
-use crate::{
-    XilemAppState,
-    view::{container_view, submittable_text_input},
-};
+use crate::view::{container_view, submittable_text_input};
 
 pub fn edit_view(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     fork(
@@ -43,13 +40,13 @@ fn add_more_buttons(state: &Edit) -> impl FlexSequence<Edit> + use<> {
         // New empty entry, prefilled with tag metatags
         submittable_text_input(
             text_input(
-                state.edit.tag_create_name_state.clone(),
-                |state: &mut Edit, text| state.edit.tag_create_name_state = text,
+                state.tag_create_name_state.clone(),
+                |state: &mut Edit, text| state.tag_create_name_state = text,
             )
             .placeholder("Create Tag")
-            .on_enter(|state: &mut Edit, _text| state.edit_create_tag_entry()),
+            .on_enter(|state: &mut Edit, _text| state.create_tag_entry()),
             text_button("＋", |state: &mut Edit| {
-                state.edit_create_tag_entry();
+                state.create_tag_entry();
             }),
             Dimensions::width(Dim::Fixed(width)),
         ),
@@ -62,7 +59,6 @@ fn add_more_buttons(state: &Edit) -> impl FlexSequence<Edit> + use<> {
 
 fn entry_tiles(state: &Edit) -> impl FlexSequence<Edit> + use<> {
     state
-        .edit
         .entries()
         .iter()
         .enumerate()
@@ -77,7 +73,7 @@ fn entry_tiles(state: &Edit) -> impl FlexSequence<Edit> + use<> {
                     ))
                     // .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center),
-                    move |state: &mut Edit| state.edit.toggle_entry_selected(index),
+                    move |state: &mut Edit| state.toggle_entry_selected(index),
                 )
                 .background_color(if entry.selected { ZYNC_700 } else { ZYNC_800 })
                 .dims(Dimensions::height(Dim::Stretch)),
@@ -116,15 +112,15 @@ fn tag_search_bar(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     // TODO: Autocomplete for tags?
     submittable_text_input(
         text_input(
-            state.edit.tag_search_bar_state.clone(),
-            |state: &mut Edit, text| state.edit.tag_search_bar_state = text,
+            state.tag_search_bar_state.clone(),
+            |state: &mut Edit, text| state.tag_search_bar_state = text,
         )
         .on_enter(|state: &mut Edit, _text| {
-            state.edit_try_add_searched_tag_to_selected();
+            state.try_add_searched_tag_to_selected();
         })
         .placeholder("Search For Tags"),
         text_button("＋", |state: &mut Edit| {
-            state.edit_try_add_searched_tag_to_selected();
+            state.try_add_searched_tag_to_selected();
         }),
         Dimensions::width(Dim::Fixed(512.px())),
     )
@@ -135,7 +131,7 @@ fn tag_item(tag: &Tag) -> impl WidgetView<Edit> + use<> {
     let tag_clone = tag.clone();
     flex_row((
         text_button("－", move |state: &mut Edit| {
-            state.edit.remove_tag_from_selected(&tag_clone);
+            state.remove_tag_from_selected(&tag_clone);
         })
         .border_width(0.px()),
         prose(tag.as_str()),
@@ -150,8 +146,8 @@ fn tag_search_result(tag: &Tag) -> impl WidgetView<Edit> + use<> {
         // TODO: Show number of entries the tag is already applied to?
         flex_row((prose("＋"), prose(tag.as_str()))),
         move |state: &mut Edit| {
-            if state.edit.add_tag_to_selected(&tag_clone) {
-                state.edit.tag_search_bar_state.clear();
+            if state.add_tag_to_selected(&tag_clone) {
+                state.tag_search_bar_state.clear();
             }
         },
     )
@@ -164,12 +160,11 @@ fn tag_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
             prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
             tag_search_bar(state),
         )),
-        flex_col(if state.edit.tag_search_bar_state.is_empty() {
+        flex_col(if state.tag_search_bar_state.is_empty() {
             // Empty search bar -> no search results
             Either::A(
                 flex_col(
                     state
-                        .edit
                         .intersection_of_tags_of_selected_entries()
                         .map(tag_item)
                         .collect::<Vec<_>>(),
@@ -182,7 +177,7 @@ fn tag_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
             Either::B(
                 flex_col(
                     state
-                        .edit_tag_prefix_search_results()
+                        .tag_prefix_search_results()
                         .map(|tag| tag_search_result(&tag))
                         .collect::<Vec<_>>(),
                 )

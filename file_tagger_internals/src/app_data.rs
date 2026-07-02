@@ -34,6 +34,7 @@ impl From<PathBuf> for RecentFolder {
 const MAX_RECENTS: usize = 10;
 
 /// Persistent data associated with the application, such as settings and "open recent" history
+#[derive(Clone)]
 pub struct AppData {
     database: Database,
     table: Table<DataKey, InlineStrVec>,
@@ -67,12 +68,12 @@ impl AppData {
         })
     }
 
-    pub fn push_recent_folder(&mut self, folder: PathBuf) -> &RecentFolder {
+    pub fn push_recent_folder(&mut self, folder: PathBuf) -> database::Result<&RecentFolder> {
         let folder = folder.into();
         // Doing a linear search is fine as this vec is always small.
         // We can't just use `contains()` here as we need to get a reference to the element.
         // For some reason getting and using the index is needed to workaround the borrow checker
-        if let Some(i) = self
+        let folder: &RecentFolder = if let Some(i) = self
             .recent_folders
             .iter()
             .enumerate()
@@ -80,21 +81,25 @@ impl AppData {
         {
             &self.recent_folders[i]
         } else if self.recent_folders.len() < MAX_RECENTS {
-            self.recent_folders.push_mut(folder)
+            self.recent_folders.push(folder);
+            // Dumb borrowck nonsense
+            self.recent_folders.last().unwrap()
         } else {
             self.recent_folders.rotate_left(1);
             // This unwrap will never fail because of the length check above (unless `MAX_RECENTS` is 0 for some reason)
             let most_recent = self.recent_folders.last_mut().unwrap();
             *most_recent = folder;
-            most_recent
-        }
+            // Dumb borrowck nonsense
+            self.recent_folders.last().unwrap()
+        };
+        self.write_recent_folders().map(|_| folder)
     }
 
     pub fn recent_folders(&self) -> &[RecentFolder] {
         &self.recent_folders
     }
 
-    pub fn write_recent_folders(&self) -> database::Result<()> {
+    fn write_recent_folders(&self) -> database::Result<()> {
         let buffer = self
             .recent_folders
             .iter()

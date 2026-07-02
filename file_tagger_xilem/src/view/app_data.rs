@@ -9,8 +9,6 @@ use xilem::{
     view::{CrossAxisAlignment, button, flex_col, portal, prose},
 };
 
-use crate::XilemAppState;
-
 pub fn recent_list(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
     // Instead, they are always as wide as possible

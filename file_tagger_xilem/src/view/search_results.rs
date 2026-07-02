@@ -5,7 +5,10 @@ use xilem::{
     view::{FlexExt, GridParams, grid, grid_item, prose},
 };
 
-use crate::view::centered_box;
+use crate::view::{
+    active_folder_name, centered_box,
+    search_menu::{edit_buttons, search_bar},
+};
 
 pub fn search_results_view(state: &mut SearchResults) -> impl WidgetView<SearchResults> + use<> {
     centered_box((
@@ -14,10 +17,7 @@ pub fn search_results_view(state: &mut SearchResults) -> impl WidgetView<SearchR
         }),
         search_bar(state),
         edit_buttons(state),
-        lens(search_results, |state: &mut SearchResults| {
-            &mut state.search_results
-        })
-        .flex(1.0),
+        search_results(state).flex(1.0),
     ))
 }
 

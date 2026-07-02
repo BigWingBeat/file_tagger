@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    ops::{Deref, DerefMut},
-    path::PathBuf,
-};
+use std::{collections::BTreeSet, path::PathBuf};
 
 use miette::{IntoDiagnostic, Report};
 
@@ -13,17 +9,25 @@ use crate::{AppData, DatabaseState, Entry, Tag};
 macro_rules! app_state {
 	( $name:ident = $( $(#[$meta:meta])* $variant:ident { $($v:vis $field:ident: $t:ty),* $(,)* } ),* $(,)* ) => {
 	    $(
-            pub struct $variant<Next = $name<()>> { pub next_state: Option<Next>, $($v $field: $t),* }
+            pub struct $variant<Next = $name<()>> { next_state: Option<Next>, pub active_overlay: ActiveOverlay, $($v $field: $t),* }
 
             impl<Next> $variant<Next> {
                 pub fn new($($field: $t),*) -> Self {
-                    Self { next_state: None, $($field),* }
+                    Self { next_state: None, active_overlay: ActiveOverlay::None, $($field),* }
+                }
+
+                pub fn queue_next_state<T>(&mut self, parameters: <Self as StateTransition<T>>::Parameters)
+                where
+                    Self: StateTransition<T>,
+                    <Self as StateTransition<T>>::Next: Into<Next>,
+                {
+                    self.next_state = Some(self.to_state(parameters).into())
                 }
             }
 
             impl From<$variant<()>> for $variant {
                 fn from(_value: $variant<()>) -> Self {
-                    Self { next_state: None, $($field: _value.$field),* }
+                    Self { next_state: None, active_overlay: ActiveOverlay::None, $($field: _value.$field),* }
                 }
             }
 
@@ -47,6 +51,18 @@ macro_rules! app_state {
         }
 
         impl $name {
+            pub fn active_overlay(&self) -> &ActiveOverlay {
+                match &self {
+                    $( $name::$variant(inner) => &inner.active_overlay ),*
+                }
+            }
+
+            pub fn set_active_overlay(&mut self, overlay: ActiveOverlay) {
+                match self {
+                    $( $name::$variant(inner) => inner.active_overlay = overlay ),*
+                }
+            }
+
             pub fn update_to_next(&mut self) {
                 let next = match self {
                     $( $name::$variant(inner) => inner.next_state.take() ),*
@@ -93,11 +109,69 @@ app_state! {
     },
 }
 
-impl SearchResults {
-    pub fn entries(&self) -> &[EditEntry] {
-        &self.entries
-    }
+pub trait StateTransition<T> {
+    type Parameters;
+    type Next;
+    fn to_state(&self, parameters: Self::Parameters) -> Self::Next;
 }
+
+macro_rules! impl_state_transition {
+    ($from:ident, $to:ident, parameters: [ $($field:ident: $param:ty),* ], clones: [ $($clone:ident),* ], defaults: [ $($default:ident),* ]) => {
+        impl<Next, T> StateTransition<$to<T>> for $from<Next> {
+            type Parameters = ( $($param,)* );
+            type Next = $to<()>;
+            fn to_state(&self, ( $($field,)* ): ( $($param,)* )) -> Self::Next {
+                $to {
+                    next_state: None,
+                    active_overlay: ActiveOverlay::None,
+                    $( $field, )*
+                    $( $clone: self.$clone.clone(), )*
+                    $( $default: Default::default(), )*
+                }
+            }
+        }
+    };
+}
+
+impl_state_transition!(
+    Launcher,
+    SearchMenu,
+    parameters: [database: DatabaseState],
+    clones: [persistent],
+    defaults: [search_bar]
+);
+
+impl_state_transition!(
+    SearchMenu,
+    SearchMenu,
+    parameters: [database: DatabaseState],
+    clones: [persistent],
+    defaults: [search_bar]
+);
+
+impl_state_transition!(
+    SearchMenu,
+    SearchResults,
+    parameters: [],
+    clones: [database, persistent],
+    defaults: [entries]
+);
+
+impl_state_transition!(
+    SearchMenu,
+    Edit,
+    parameters: [],
+    clones: [database, persistent],
+    defaults: [entries, tag_search_bar_state, tag_create_name_state]
+);
+
+impl_state_transition!(
+    Edit,
+    SearchMenu,
+    parameters: [],
+    clones: [database, persistent],
+    defaults: [search_bar]
+);
 
 #[derive(Default)]
 pub enum ActiveOverlay {
@@ -108,6 +182,52 @@ pub enum ActiveOverlay {
     Error(Report),
     /// Waiting for something to happen on another thread (e.g. async)
     Spinner,
+}
+
+pub struct AppState {
+    pub active_view: ActiveView,
+}
+
+macro_rules! set_err {
+    ($this:ident, $result:expr $(,)?) => {{
+        let result: Result<_, Report> = $result;
+        match result {
+            Ok(ok) => ok,
+            Err(e) => {
+                $this.active_overlay = ActiveOverlay::Error(e);
+                return;
+            }
+        }
+    }};
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        match AppData::open() {
+            Ok(persistent) => Self {
+                active_view: Loading {
+                    next_state: Some(Launcher::new(persistent).into()),
+                    active_overlay: ActiveOverlay::None,
+                }
+                .into(),
+            },
+            Err(e) => Self {
+                active_view: Loading {
+                    next_state: None,
+                    active_overlay: ActiveOverlay::Error(e),
+                }
+                .into(),
+            },
+        }
+    }
+
+    pub fn active_overlay(&self) -> &ActiveOverlay {
+        self.active_view.active_overlay()
+    }
+
+    pub fn set_active_overlay(&mut self, overlay: ActiveOverlay) {
+        self.active_view.set_active_overlay(overlay);
+    }
 }
 
 pub struct EditEntry {
@@ -127,7 +247,86 @@ impl EditEntry {
     }
 }
 
+impl Launcher {
+    /// The user picks a folder, and a database is created or opened in that folder.
+    /// Queues the [`SearchMenu` ]state.
+    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database(folder);
+    }
+
+    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
+    /// Queues the [`SearchMenu`] state.
+    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
+        std::fs::create_dir(&folder).unwrap();
+        self.open_database(folder);
+    }
+
+    fn open_database(&mut self, folder: PathBuf) {
+        let folder = set_err!(
+            self,
+            self.persistent.push_recent_folder(folder).into_diagnostic()
+        );
+        let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
+        self.queue_next_state::<SearchMenu>((database,));
+    }
+}
+
+impl SearchMenu {
+    /// The user picks a folder, and a database is created or opened in that folder
+    /// Queues the [`SearchMenu`] state.
+    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database(folder);
+    }
+
+    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
+    /// Queues the [`SearchMenu`] state.
+    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
+        std::fs::create_dir(&folder).unwrap();
+        self.open_database(folder);
+    }
+
+    fn open_database(&mut self, folder: PathBuf) {
+        if self.database.active_folder().path == folder {
+            return;
+        }
+
+        let folder = set_err!(
+            self,
+            self.persistent.push_recent_folder(folder).into_diagnostic()
+        );
+        let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
+        self.queue_next_state::<SearchMenu>((database,));
+    }
+
+    /// Queues the [`SearchResults`] state.
+    pub fn search_results(&mut self) {
+        self.queue_next_state::<SearchResults>(());
+    }
+
+    /// Queues the [`Edit`] state.
+    pub fn edit_entries(&mut self) {
+        self.queue_next_state::<Edit>(());
+    }
+
+    /// The user picks one or more files, and the editor is opened with new template entries for those files
+    /// Queues the [`Edit`] state.
+    pub fn import_files(&mut self, files: &[PathBuf]) {
+        self.queue_next_state::<Edit>(());
+    }
+}
+
+impl SearchResults {
+    pub fn entries(&self) -> &[EditEntry] {
+        &self.entries
+    }
+}
+
 impl Edit {
+    /// Queues the [`SearchMenu`] state.
+    pub fn search_menu(&mut self) {
+        self.queue_next_state::<SearchMenu>(());
+    }
+
     pub fn entries(&self) -> &[EditEntry] {
         &self.entries
     }
@@ -185,163 +384,6 @@ impl Edit {
         {
             tags.remove(tag);
         }
-    }
-}
-
-pub struct AppState {
-    pub active_view: ActiveView,
-    pub active_overlay: ActiveOverlay,
-}
-
-macro_rules! set_err {
-    ($this:ident, $result:expr $(,)?) => {{
-        let result: Result<_, Report> = $result;
-        match result {
-            Ok(ok) => ok,
-            Err(e) => {
-                $this.active_overlay = ActiveOverlay::Error(e);
-                return;
-            }
-        }
-    }};
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        match AppData::open() {
-            Ok(persistent) => Self {
-                active_view: Loading {
-                    next_state: Some(Launcher::new(persistent).into()),
-                }
-                .into(),
-                active_overlay: ActiveOverlay::None,
-            },
-            Err(e) => Self {
-                active_view: Loading::new().into(),
-                active_overlay: ActiveOverlay::Error(e),
-            },
-        }
-    }
-}
-
-impl Launcher {
-    /// The user picks a folder, and a database is created or opened in that folder
-    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
-        self.open_database(folder);
-    }
-
-    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
-    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
-        std::fs::create_dir(&folder).unwrap();
-        self.open_database(folder);
-    }
-
-    fn open_database(&mut self, folder: PathBuf) {
-        let folder = self.persistent.push_recent_folder(folder);
-        set_err!(self, self.database.open_in_folder(folder.clone()));
-        set_err!(
-            self,
-            self.persistent.write_recent_folders().into_diagnostic(),
-        );
-        self.next_state = Some(
-            SearchMenu {
-                next_state: None,
-                database: todo!(),
-                persistent: todo!(),
-                search_bar: String::new(),
-            }
-            .into(),
-        );
-    }
-}
-
-impl SearchMenu {
-    /// The user picks a folder, and a database is created or opened in that folder
-    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
-        self.open_database(folder);
-    }
-
-    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
-    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
-        std::fs::create_dir(&folder).unwrap();
-        self.open_database(folder);
-    }
-
-    fn open_database(&mut self, folder: PathBuf) {
-        if self.database.active_folder().path == folder {
-            return;
-        }
-
-        let folder = self.persistent.push_recent_folder(folder);
-        set_err!(self, self.database.open_in_folder(folder.clone()));
-        set_err!(
-            self,
-            self.persistent.write_recent_folders().into_diagnostic(),
-        );
-        self.next_state = Some(
-            SearchMenu {
-                next_state: None,
-                database: todo!(),
-                persistent: todo!(),
-                search_bar: String::new(),
-            }
-            .into(),
-        );
-    }
-
-    pub fn search_results(&mut self) {
-        self.next_state = Some(
-            SearchResults {
-                next_state: None,
-                database: todo!(),
-                persistent: todo!(),
-                entries: Vec::new(),
-            }
-            .into(),
-        );
-    }
-
-    pub fn edit_entries(&mut self) {
-        self.next_state = Some(
-            Edit {
-                next_state: None,
-                database: todo!(),
-                persistent: todo!(),
-                entries: Vec::new(),
-                tag_search_bar_state: String::new(),
-                tag_create_name_state: String::new(),
-            }
-            .into(),
-        );
-    }
-
-    /// The user picks one or more files, and the editor is opened with new template entries for those files
-    pub fn import_files(&mut self, files: &[PathBuf]) {
-        self.next_state = Some(
-            Edit {
-                next_state: None,
-                database: todo!(),
-                persistent: todo!(),
-                entries: Vec::new(), // = files
-                tag_search_bar_state: String::new(),
-                tag_create_name_state: String::new(),
-            }
-            .into(),
-        );
-    }
-}
-
-impl Edit {
-    pub fn search_menu(&mut self) {
-        self.next_state = Some(
-            SearchMenu {
-                next_state: None,
-                database: todo!(),
-                persistent: todo!(),
-                search_bar: String::new(),
-            }
-            .into(),
-        );
     }
 
     pub fn create_tag_entry(&mut self) {

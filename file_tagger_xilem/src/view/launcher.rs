@@ -45,7 +45,7 @@ fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<Launcher> + use<
                             proxy.message(result);
                         },
                         |state: &mut AppState, result| {
-                            state.active_overlay = ActiveOverlay::None;
+                            state.set_active_overlay(ActiveOverlay::None);
                             if let Some(folder) = result {
                                 state.open_database_in_folder(folder.into());
                             }
@@ -75,7 +75,7 @@ fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<Launcher> + use<
                             proxy.message(result);
                         },
                         |state: &mut AppState, result| {
-                            state.active_overlay = ActiveOverlay::None;
+                            state.set_active_overlay(ActiveOverlay::None);
                             if let Some(folder) = result {
                                 state.create_folder_with_database(folder.into());
                             }

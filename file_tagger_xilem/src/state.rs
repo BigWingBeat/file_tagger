@@ -102,11 +102,11 @@ impl XilemAppState {
         self.active_view.update_to_next();
         let view = self.view();
 
-        let overlay = match &self.active_overlay {
+        let overlay = match self.active_overlay() {
             ActiveOverlay::None => None,
             ActiveOverlay::Error(report) => Some(
                 error_view(report, |state: &mut XilemAppState| {
-                    state.active_overlay = ActiveOverlay::None;
+                    state.set_active_overlay(ActiveOverlay::None);
                 })
                 .boxed(),
             ),
@@ -125,7 +125,7 @@ impl XilemAppState {
     where
         V: View<AppState, (), ViewCtx, Element = NoElement> + Send + Sync,
     {
-        self.active_overlay = ActiveOverlay::Spinner;
+        self.set_active_overlay(ActiveOverlay::Spinner);
         self.pending_task = Some(Box::new(move |state| Box::new(view(state))));
     }
 }

@@ -19,9 +19,10 @@ use crate::{
     initialize_transaction,
 };
 
+#[derive(Clone)]
 pub struct DatabaseState {
     database: TagsDatabase,
-    active_folder: RecentFolder,
+    folder: RecentFolder,
 }
 
 impl DatabaseState {
@@ -30,17 +31,17 @@ impl DatabaseState {
     }
 
     pub fn active_folder(&self) -> &RecentFolder {
-        &self.active_folder
+        &self.folder
     }
 
     pub fn create_temporary() -> miette::Result<Self> {
         TagsDatabase::open_temporary().map(|database| Self {
             database,
-            active_folder: PathBuf::default().into(),
+            folder: PathBuf::default().into(),
         })
     }
 
-    pub fn open_in_folder(&mut self, folder: RecentFolder) -> miette::Result<&mut TagsDatabase> {
+    pub fn open_in_folder(folder: RecentFolder) -> miette::Result<Self> {
         let mut db_folder = folder.clone();
         db_folder.path.push(DB_FOLDER_NAME);
         std::fs::create_dir(&db_folder.path)
@@ -52,11 +53,7 @@ impl DatabaseState {
             })
             .into_diagnostic()
             .and_then(|_| TagsDatabase::open(db_folder.path))
-            .map(|db| {
-                self.database = db;
-                self.active_folder = folder;
-                &mut self.database
-            })
+            .map(|database| Self { database, folder })
     }
 
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.

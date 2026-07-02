@@ -7,10 +7,7 @@ use xilem::{
 
 use file_tagger_internals::{ActiveOverlay, AppState, SearchMenu};
 
-use crate::{
-    XilemAppState,
-    view::{centered_box, submittable_text_input},
-};
+use crate::view::{active_folder_name, centered_box, launcher::launcher, submittable_text_input};
 
 pub fn search_menu_view(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> + use<> {
     centered_box((
@@ -26,10 +23,9 @@ pub fn search_menu_view(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> +
 
 pub fn search_bar(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> + use<> {
     submittable_text_input(
-        text_input(
-            state.search_menu.search_text.clone(),
-            |state: &mut SearchMenu, text| state.search_menu.search_text = text,
-        )
+        text_input(state.search_bar.clone(), |state: &mut SearchMenu, text| {
+            state.search_bar = text
+        })
         .on_enter(|state: &mut SearchMenu, _| state.search_results())
         .placeholder("Search database by tag"),
         text_button("🔍", |state: &mut SearchMenu| state.search_results()),
@@ -53,7 +49,7 @@ pub fn edit_buttons(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> + use
                         proxy.message(result);
                     },
                     |state: &mut AppState, result| {
-                        state.active_overlay = ActiveOverlay::None;
+                        state.set_active_overlay(ActiveOverlay::None);
                         if let Some(files) = result
                             && !files.is_empty()
                         {
