@@ -1,12 +1,27 @@
-use file_tagger_internals::SearchResultsState;
+use file_tagger_internals::SearchResults;
 use xilem::{
     WidgetView,
-    view::{GridParams, grid, grid_item, prose},
+    core::lens,
+    view::{FlexExt, GridParams, grid, grid_item, prose},
 };
 
-pub fn search_results(
-    state: &mut SearchResultsState,
-) -> impl WidgetView<SearchResultsState> + use<> {
+use crate::view::centered_box;
+
+pub fn search_results_view(state: &mut SearchResults) -> impl WidgetView<SearchResults> + use<> {
+    centered_box((
+        lens(active_folder_name, |state: &mut SearchResults| {
+            &mut state.database
+        }),
+        search_bar(state),
+        edit_buttons(state),
+        lens(search_results, |state: &mut SearchResults| {
+            &mut state.search_results
+        })
+        .flex(1.0),
+    ))
+}
+
+pub fn search_results(state: &mut SearchResults) -> impl WidgetView<SearchResults> + use<> {
     // TODO: see <https://github.com/linebender/xilem/issues/1785>
     let cols = 4;
     grid(

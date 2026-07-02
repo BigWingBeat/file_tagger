@@ -19,6 +19,13 @@ use crate::{
     view::{container_view, submittable_text_input},
 };
 
+pub fn edit_view(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
+    fork(
+        flex_col((entry_list(state), tag_list(state))).padding(10.px()),
+        TransactionWorker,
+    )
+}
+
 container_view! {
     fn tile(seq: Seq) {
         flex_col(seq)
@@ -30,18 +37,18 @@ container_view! {
 }
 
 /// Ways of adding more entries to be edited
-fn add_more_buttons(state: &XilemAppState) -> impl FlexSequence<XilemAppState> + use<> {
+fn add_more_buttons(state: &Edit) -> impl FlexSequence<Edit> + use<> {
     let width = 175.px();
     (
         // New empty entry, prefilled with tag metatags
         submittable_text_input(
             text_input(
                 state.edit.tag_create_name_state.clone(),
-                |state: &mut XilemAppState, text| state.edit.tag_create_name_state = text,
+                |state: &mut Edit, text| state.edit.tag_create_name_state = text,
             )
             .placeholder("Create Tag")
-            .on_enter(|state: &mut XilemAppState, _text| state.edit_create_tag_entry()),
-            text_button("＋", |state: &mut XilemAppState| {
+            .on_enter(|state: &mut Edit, _text| state.edit_create_tag_entry()),
+            text_button("＋", |state: &mut Edit| {
                 state.edit_create_tag_entry();
             }),
             Dimensions::width(Dim::Fixed(width)),
@@ -53,7 +60,7 @@ fn add_more_buttons(state: &XilemAppState) -> impl FlexSequence<XilemAppState> +
     )
 }
 
-fn entry_tiles(state: &XilemAppState) -> impl FlexSequence<XilemAppState> + use<> {
+fn entry_tiles(state: &Edit) -> impl FlexSequence<Edit> + use<> {
     state
         .edit
         .entries()
@@ -70,7 +77,7 @@ fn entry_tiles(state: &XilemAppState) -> impl FlexSequence<XilemAppState> + use<
                     ))
                     // .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center),
-                    move |state: &mut XilemAppState| state.edit.toggle_entry_selected(index),
+                    move |state: &mut Edit| state.edit.toggle_entry_selected(index),
                 )
                 .background_color(if entry.selected { ZYNC_700 } else { ZYNC_800 })
                 .dims(Dimensions::height(Dim::Stretch)),
@@ -79,7 +86,7 @@ fn entry_tiles(state: &XilemAppState) -> impl FlexSequence<XilemAppState> + use<
         .collect::<Vec<_>>()
 }
 
-fn placeholder_tile(state: &XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+fn placeholder_tile(state: &Edit) -> impl WidgetView<Edit> + use<> {
     tile(
         flex_col((add_more_buttons(state),))
             .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
@@ -87,7 +94,7 @@ fn placeholder_tile(state: &XilemAppState) -> impl WidgetView<XilemAppState> + u
     )
 }
 
-fn entry_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+fn entry_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     // Display thumbnails of entries being edited, entries can be selected
     flex_col((
         prose("Edit Selected Entries")
@@ -105,29 +112,29 @@ fn entry_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use
     ))
 }
 
-fn tag_search_bar(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+fn tag_search_bar(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     // TODO: Autocomplete for tags?
     submittable_text_input(
         text_input(
             state.edit.tag_search_bar_state.clone(),
-            |state: &mut XilemAppState, text| state.edit.tag_search_bar_state = text,
+            |state: &mut Edit, text| state.edit.tag_search_bar_state = text,
         )
-        .on_enter(|state: &mut XilemAppState, _text| {
+        .on_enter(|state: &mut Edit, _text| {
             state.edit_try_add_searched_tag_to_selected();
         })
         .placeholder("Search For Tags"),
-        text_button("＋", |state: &mut XilemAppState| {
+        text_button("＋", |state: &mut Edit| {
             state.edit_try_add_searched_tag_to_selected();
         }),
         Dimensions::width(Dim::Fixed(512.px())),
     )
 }
 
-fn tag_item(tag: &Tag) -> impl WidgetView<XilemAppState> + use<> {
+fn tag_item(tag: &Tag) -> impl WidgetView<Edit> + use<> {
     // borrowck shit
     let tag_clone = tag.clone();
     flex_row((
-        text_button("－", move |state: &mut XilemAppState| {
+        text_button("－", move |state: &mut Edit| {
             state.edit.remove_tag_from_selected(&tag_clone);
         })
         .border_width(0.px()),
@@ -136,13 +143,13 @@ fn tag_item(tag: &Tag) -> impl WidgetView<XilemAppState> + use<> {
     .background(ZYNC_800)
 }
 
-fn tag_search_result(tag: &Tag) -> impl WidgetView<XilemAppState> + use<> {
+fn tag_search_result(tag: &Tag) -> impl WidgetView<Edit> + use<> {
     // borrowck shit
     let tag_clone = tag.clone();
     button(
         // TODO: Show number of entries the tag is already applied to?
         flex_row((prose("＋"), prose(tag.as_str()))),
-        move |state: &mut XilemAppState| {
+        move |state: &mut Edit| {
             if state.edit.add_tag_to_selected(&tag_clone) {
                 state.edit.tag_search_bar_state.clear();
             }
@@ -151,7 +158,7 @@ fn tag_search_result(tag: &Tag) -> impl WidgetView<XilemAppState> + use<> {
     .background(ZYNC_800)
 }
 
-fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<> {
+fn tag_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     flex_col((
         flex_row((
             prose("Tags").weight(FontWeight::BOLD).text_size(20.0),
@@ -188,33 +195,22 @@ fn tag_list(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> + use<>
         .flex(0.2),
         flex_row((
             FlexSpacer::Flex(1.0),
-            text_button("Save Changes", |state: &mut XilemAppState| {}),
-            text_button("Cancel", |state: &mut XilemAppState| state.search_menu()),
+            text_button("Save Changes", |state: &mut Edit| {}),
+            text_button("Cancel", |state: &mut Edit| state.search_menu()),
         )),
     ))
-}
-
-pub fn edit(state: &mut Edit) -> impl WidgetView<Edit> {
-    fork(
-        flex_col((entry_list(state), tag_list(state))).padding(10.px()),
-        TransactionWorker,
-    )
 }
 
 /// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
 struct TransactionWorker;
 
 impl ViewMarker for TransactionWorker {}
-impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
+impl View<Edit, (), ViewCtx> for TransactionWorker {
     type Element = NoElement;
 
     type ViewState = TransactionHandle;
 
-    fn build(
-        &self,
-        _ctx: &mut ViewCtx,
-        app_state: &mut XilemAppState,
-    ) -> (Self::Element, Self::ViewState) {
+    fn build(&self, _ctx: &mut ViewCtx, app_state: &mut Edit) -> (Self::Element, Self::ViewState) {
         let db = app_state.database.inner_db_handle().clone();
         let (api, handle) = db.initialize_transaction();
         app_state.active_transaction = api;
@@ -227,7 +223,7 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
         _view_state: &mut Self::ViewState,
         _ctx: &mut ViewCtx,
         _element: Mut<'_, Self::Element>,
-        _app_state: &mut XilemAppState,
+        _app_state: &mut Edit,
     ) {
         // `rebuild` is for handling changes in state, but there are no possible state changes we care about,
         // so we have nothing to do here.
@@ -253,7 +249,7 @@ impl View<XilemAppState, (), ViewCtx> for TransactionWorker {
         _view_state: &mut Self::ViewState,
         message: &mut MessageCtx,
         _element: Mut<'_, Self::Element>,
-        _app_state: &mut XilemAppState,
+        _app_state: &mut Edit,
     ) -> MessageResult<()> {
         eprintln!(
             "Message arrived in TransactionWorker::message, but TransactionWorker doesn't consume any messages, this is a bug. {message:?}"

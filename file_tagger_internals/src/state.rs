@@ -73,19 +73,19 @@ app_state! {
     /// A database is open. Buttons for opening/creating a database, plus a search bar.
     /// Automatically open previously opened database to this view on startup, if possible
     SearchMenu {
-        database: DatabaseState,
+        pub database: DatabaseState,
         persistent: AppData,
         pub search_bar: String,
     },
     /// Grid of search results, plus a search bar, and button to go back to `SearchMenu`
     SearchResults {
-        database: DatabaseState,
+        pub database: DatabaseState,
         persistent: AppData,
         entries: Vec<EditEntry>,
     },
     /// Edit tags of entries, and create new entries (tags) to use
     Edit {
-        database: DatabaseState,
+        pub database: DatabaseState,
         persistent: AppData,
         entries: Vec<EditEntry>,
         pub tag_search_bar_state: String,
@@ -222,7 +222,40 @@ impl AppState {
             },
         }
     }
+}
 
+impl Launcher {
+    /// The user picks a folder, and a database is created or opened in that folder
+    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database(folder);
+    }
+
+    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
+    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
+        std::fs::create_dir(&folder).unwrap();
+        self.open_database(folder);
+    }
+
+    fn open_database(&mut self, folder: PathBuf) {
+        let folder = self.persistent.push_recent_folder(folder);
+        set_err!(self, self.database.open_in_folder(folder.clone()));
+        set_err!(
+            self,
+            self.persistent.write_recent_folders().into_diagnostic(),
+        );
+        self.next_state = Some(
+            SearchMenu {
+                next_state: None,
+                database: todo!(),
+                persistent: todo!(),
+                search_bar: String::new(),
+            }
+            .into(),
+        );
+    }
+}
+
+impl SearchMenu {
     /// The user picks a folder, and a database is created or opened in that folder
     pub fn open_database_in_folder(&mut self, folder: PathBuf) {
         self.open_database(folder);
@@ -245,37 +278,80 @@ impl AppState {
             self,
             self.persistent.write_recent_folders().into_diagnostic(),
         );
-        self.active_view = ActiveView::SearchMenu;
-    }
-
-    pub fn search_menu(&mut self) {
-        self.active_view = ActiveView::SearchMenu;
+        self.next_state = Some(
+            SearchMenu {
+                next_state: None,
+                database: todo!(),
+                persistent: todo!(),
+                search_bar: String::new(),
+            }
+            .into(),
+        );
     }
 
     pub fn search_results(&mut self) {
-        self.active_view = ActiveView::SearchResults;
+        self.next_state = Some(
+            SearchResults {
+                next_state: None,
+                database: todo!(),
+                persistent: todo!(),
+                entries: Vec::new(),
+            }
+            .into(),
+        );
     }
 
     pub fn edit_entries(&mut self) {
-        self.active_view = ActiveView::Edit;
-        self.edit.clear_entries();
+        self.next_state = Some(
+            Edit {
+                next_state: None,
+                database: todo!(),
+                persistent: todo!(),
+                entries: Vec::new(),
+                tag_search_bar_state: String::new(),
+                tag_create_name_state: String::new(),
+            }
+            .into(),
+        );
     }
 
     /// The user picks one or more files, and the editor is opened with new template entries for those files
     pub fn import_files(&mut self, files: &[PathBuf]) {
-        self.active_view = ActiveView::Edit;
-        self.edit.clear_entries();
-        // self.edit.entries = paths;
+        self.next_state = Some(
+            Edit {
+                next_state: None,
+                database: todo!(),
+                persistent: todo!(),
+                entries: Vec::new(), // = files
+                tag_search_bar_state: String::new(),
+                tag_create_name_state: String::new(),
+            }
+            .into(),
+        );
+    }
+}
+
+impl Edit {
+    pub fn search_menu(&mut self) {
+        self.next_state = Some(
+            SearchMenu {
+                next_state: None,
+                database: todo!(),
+                persistent: todo!(),
+                search_bar: String::new(),
+            }
+            .into(),
+        );
     }
 
-    pub fn edit_create_tag_entry(&mut self) {
-        if self.edit.tag_create_name_state.is_empty() {
+    pub fn create_tag_entry(&mut self) {
+        if self.tag_create_name_state.is_empty() {
             return;
         }
 
         let id = self.database.generate_entry();
-        let name = std::mem::take(&mut self.edit.tag_create_name_state);
-        self.edit.entries.push(EditEntry {
+        let name = std::mem::take(&mut self.tag_create_name_state);
+        self.entries.push(EditEntry {
             id,
             name,
             tags: BTreeSet::new(),
@@ -283,17 +359,17 @@ impl AppState {
         });
     }
 
-    pub fn edit_try_add_searched_tag_to_selected(&mut self) {
-        let tag = self.edit.tag_search_bar_state.as_str().into();
+    pub fn try_add_searched_tag_to_selected(&mut self) {
+        let tag = self.tag_search_bar_state.as_str().into();
         let tag_exists = set_err!(self, self.database.tag_exists(&tag));
-        if tag_exists && self.edit.add_tag_to_selected(&tag) {
-            self.edit.tag_search_bar_state.clear();
+        if tag_exists && self.add_tag_to_selected(&tag) {
+            self.tag_search_bar_state.clear();
         }
     }
 
-    pub fn edit_tag_prefix_search_results(&mut self) -> impl Iterator<Item = Tag> {
+    pub fn tag_prefix_search_results(&mut self) -> impl Iterator<Item = Tag> {
         self.database
-            .search_tags_names_by_prefix(&self.edit.tag_search_bar_state)
+            .search_tags_names_by_prefix(&self.tag_search_bar_state)
             .map_while(|result| match result {
                 Ok(tag) => Some(tag),
                 Err(e) => {

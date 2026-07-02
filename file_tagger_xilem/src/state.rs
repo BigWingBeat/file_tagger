@@ -21,11 +21,11 @@ use crate::{
 
 /// State wrapper so we can store xilem-specific state
 pub struct XilemAppState {
-    state: AppState,
-    assets: Assets,
+    pub state: AppState,
+    pub assets: Assets,
     /// Displayed by [`crate::view::spinner_view`] when the active overlay is [`ActiveOverlay::Spinner`]
-    pending_task: Option<Box<dyn Fn(&mut AppState) -> Box<AnyTaskView<AppState>>>>,
-    active_transaction: TransactionApi,
+    pub pending_task: Option<Box<dyn Fn(&mut AppState) -> Box<AnyTaskView<AppState>>>>,
+    pub active_transaction: TransactionApi,
 }
 
 pub trait LensView {
@@ -102,8 +102,7 @@ impl XilemAppState {
         self.active_view.update_to_next();
         let view = self.view();
 
-        // TODO: `zstack(view, Option(overlay))`?
-        if let Some(overlay) = match &self.active_overlay {
+        let overlay = match &self.active_overlay {
             ActiveOverlay::None => None,
             ActiveOverlay::Error(report) => Some(
                 error_view(report, |state: &mut XilemAppState| {
@@ -112,11 +111,14 @@ impl XilemAppState {
                 .boxed(),
             ),
             ActiveOverlay::Spinner => Some(spinner_view(self).boxed()),
-        } {
-            Either::A(zstack((view, overlay)))
-        } else {
-            Either::B(view)
-        }
+        };
+
+        zstack((view, overlay))
+        // if let Some(overlay) = overlay {
+        //     Either::A(zstack((view, overlay)))
+        // } else {
+        //     Either::B(view)
+        // }
     }
 
     pub fn run_task<V>(&mut self, view: impl Fn(&mut AppState) -> V + 'static)

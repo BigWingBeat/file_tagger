@@ -11,7 +11,7 @@ use xilem::{
 
 use crate::XilemAppState;
 
-pub fn recent_list(state: &mut Launcher) -> impl WidgetView<XilemAppState> + use<> {
+pub fn recent_list(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
     // Instead, they are always as wide as possible
     flex_col(
@@ -32,7 +32,7 @@ pub fn recent_list(state: &mut Launcher) -> impl WidgetView<XilemAppState> + use
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(0.px()),
-                    move |state: &mut XilemAppState| {
+                    move |state: &mut Launcher| {
                         state.open_database_in_folder(path.clone());
                     },
                 )

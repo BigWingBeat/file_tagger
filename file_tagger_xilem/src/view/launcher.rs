@@ -6,20 +6,24 @@ use xilem::{
     },
     style::Style,
     view::{
-        CrossAxisAlignment, FlexExt, MainAxisAlignment, flex_col, flex_item, flex_row, prose, task,
-        text_button,
+        CrossAxisAlignment, FlexExt, FlexSpacer, MainAxisAlignment, flex_col, flex_item, flex_row,
+        prose, task, text_button,
     },
 };
 
 use file_tagger_internals::{ActiveOverlay, AppState, Launcher};
 
-use crate::{XilemAppState, app_data::recent_list_portal};
+use crate::{XilemAppState, view::centered_box};
+
+pub fn launcher_view(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
+    centered_box((launcher(state), FlexSpacer::Flex(1.0)))
+}
 
 /// The "open" button selects an existing folder and either creates a new database in that folder, or opens a database
 /// that already exists there.
 /// The "create" button selects a folder, and creates a *new* empty folder there, with a specified name, as well as
 /// creating a new database in the new folder.
-fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<XilemAppState> + use<> {
+fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     // These buttons should be the same width and height
     flex_col((
         flex_row((
@@ -30,7 +34,7 @@ fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<XilemAppState> +
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
-            text_button("Open", |state: &mut XilemAppState| {
+            text_button("Open", |state: &mut Launcher| {
                 state.run_task(|_| {
                     task(
                         |proxy, _| async move {
@@ -60,7 +64,7 @@ fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<XilemAppState> +
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
-            text_button("Create", |state: &mut XilemAppState| {
+            text_button("Create", |state: &mut Launcher| {
                 state.run_task(|_| {
                     task(
                         |proxy, _| async move {

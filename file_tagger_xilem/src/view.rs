@@ -18,21 +18,25 @@ use xilem::{
     },
 };
 
+use crate::XilemAppState;
 use file_tagger_internals::{DatabaseState, Edit, Launcher, Loading, SearchMenu, SearchResults};
+
+use {
+    launcher::launcher,
+    search_menu::{edit_buttons, search_bar},
+    search_results::search_results,
+};
 
 mod app_data;
 mod edit;
 mod launcher;
+mod loading;
 mod search_menu;
 mod search_results;
 
-use crate::XilemAppState;
-
-use {
-    edit::edit,
-    launcher::launcher,
-    search_menu::{edit_buttons, search_bar},
-    search_results::search_results,
+pub use {
+    edit::edit_view, launcher::launcher_view, loading::loading_view, search_menu::search_menu_view,
+    search_results::search_results_view,
 };
 
 macro_rules! container_view {
@@ -67,44 +71,6 @@ container_view! {
         .main_axis_alignment(MainAxisAlignment::Center)
         .background_color(ZYNC_900)
     }
-}
-
-pub fn loading_view(state: &mut Loading) -> impl WidgetView<Loading> + use<> {
-    centered_flex_box(flex_col((spinner().dims(40.px()), prose("Loading..."))))
-}
-
-pub fn launcher_view(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
-    centered_box((launcher(state), FlexSpacer::Flex(1.0)))
-}
-
-pub fn search_menu_view(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> + use<> {
-    centered_box((
-        lens(active_folder_name, |state: &mut SearchMenu| {
-            &mut state.database
-        }),
-        search_bar(state),
-        edit_buttons(state),
-        launcher(state),
-        FlexSpacer::Flex(1.0),
-    ))
-}
-
-pub fn search_results_view(state: &mut SearchResults) -> impl WidgetView<SearchResults> + use<> {
-    centered_box((
-        lens(active_folder_name, |state: &mut SearchResults| {
-            &mut state.database
-        }),
-        search_bar(state),
-        edit_buttons(state),
-        lens(search_results, |state: &mut SearchResults| {
-            &mut state.search_results
-        })
-        .flex(1.0),
-    ))
-}
-
-pub fn edit_view(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
-    edit(state)
 }
 
 pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<DatabaseState> + use<> {
