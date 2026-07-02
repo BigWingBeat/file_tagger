@@ -1,5 +1,6 @@
 use xilem::{
     FontWeight, WidgetView,
+    core::fork,
     masonry::{
         layout::Dim,
         properties::{Dimensions, Gap},
@@ -11,9 +12,12 @@ use xilem::{
     },
 };
 
-use file_tagger_internals::{ActiveOverlay, AppState, Launcher};
+use file_tagger_internals::Launcher;
 
-use crate::{XilemAppState, view::centered_box};
+use crate::{
+    state::LauncherState,
+    view::{app_data::recent_list_portal, centered_box},
+};
 
 pub fn launcher_view(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     centered_box((launcher(state), FlexSpacer::Flex(1.0)))
@@ -23,7 +27,7 @@ pub fn launcher_view(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> 
 /// that already exists there.
 /// The "create" button selects a folder, and creates a *new* empty folder there, with a specified name, as well as
 /// creating a new database in the new folder.
-fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
+fn open_create_buttons<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + use<L> {
     // These buttons should be the same width and height
     flex_col((
         flex_row((
@@ -34,27 +38,28 @@ fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<Launcher> + use<
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
-            text_button("Open", |state: &mut Launcher| {
-                state.run_task(|_| {
-                    task(
-                        |proxy, _| async move {
-                            let result = rfd::AsyncFileDialog::new()
-                                .set_title("Open Database As Folder")
-                                .pick_folder()
-                                .await;
-                            proxy.message(result);
-                        },
-                        |state: &mut AppState, result| {
-                            state.set_active_overlay(ActiveOverlay::None);
-                            if let Some(folder) = result {
-                                state.open_database_in_folder(folder.into());
-                            }
-                        },
-                    )
-                });
-            })
-            .dims(Dimensions::height(Dim::Stretch))
-            .flex(1.0 / 3.0),
+            fork(
+                text_button("Open", |state: &mut L| {
+                    state.start_open_dialog();
+                })
+                .dims(Dimensions::height(Dim::Stretch))
+                .flex(1.0 / 3.0),
+                state.open_dialog_active().then_some(task(
+                    |proxy, _| async move {
+                        let result = rfd::AsyncFileDialog::new()
+                            .set_title("Open Database As Folder")
+                            .pick_folder()
+                            .await;
+                        proxy.message(result);
+                    },
+                    |state: &mut L, result| {
+                        state.stop_open_dialog();
+                        if let Some(folder) = result {
+                            state.open_database_in_folder(folder.into());
+                        }
+                    },
+                )),
+            ),
         )),
         flex_row((
             flex_col((
@@ -64,33 +69,34 @@ fn open_create_buttons(state: &mut Launcher) -> impl WidgetView<Launcher> + use<
             .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
-            text_button("Create", |state: &mut Launcher| {
-                state.run_task(|_| {
-                    task(
-                        |proxy, _| async move {
-                            let result = rfd::AsyncFileDialog::new()
-                                .set_title("Create New Folder And Database")
-                                .save_file()
-                                .await;
-                            proxy.message(result);
-                        },
-                        |state: &mut AppState, result| {
-                            state.set_active_overlay(ActiveOverlay::None);
-                            if let Some(folder) = result {
-                                state.create_folder_with_database(folder.into());
-                            }
-                        },
-                    )
-                });
-            })
-            .dims(Dimensions::height(Dim::Stretch))
-            .flex(1.0 / 3.0),
+            fork(
+                text_button("Create", |state: &mut L| {
+                    state.start_create_dialog();
+                })
+                .dims(Dimensions::height(Dim::Stretch))
+                .flex(1.0 / 3.0),
+                state.create_dialog_active().then_some(task(
+                    |proxy, _| async move {
+                        let result = rfd::AsyncFileDialog::new()
+                            .set_title("Create New Folder And Database")
+                            .save_file()
+                            .await;
+                        proxy.message(result);
+                    },
+                    |state: &mut L, result| {
+                        state.stop_create_dialog();
+                        if let Some(folder) = result {
+                            state.create_folder_with_database(folder.into());
+                        }
+                    },
+                )),
+            ),
         )),
     ))
     .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
 }
 
-pub fn launcher(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
+pub fn launcher<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + use<L> {
     flex_row((
         flex_item(recent_list_portal(state), 0.5),
         flex_item(open_create_buttons(state), 0.5),

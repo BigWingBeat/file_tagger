@@ -1,4 +1,3 @@
-use file_tagger_internals::Launcher;
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
@@ -9,12 +8,14 @@ use xilem::{
     view::{CrossAxisAlignment, button, flex_col, portal, prose},
 };
 
-pub fn recent_list(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
+use crate::state::LauncherState;
+
+pub fn recent_list<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + use<L> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
     // Instead, they are always as wide as possible
     flex_col(
         state
-            .persistent
+            .persistent()
             .recent_folders()
             .iter()
             .rev()
@@ -30,7 +31,7 @@ pub fn recent_list(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
                     ))
                     .cross_axis_alignment(CrossAxisAlignment::Start)
                     .gap(0.px()),
-                    move |state: &mut Launcher| {
+                    move |state: &mut L| {
                         state.open_database_in_folder(path.clone());
                     },
                 )
@@ -42,7 +43,7 @@ pub fn recent_list(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     .dims(Dimensions::width(Dim::Stretch))
 }
 
-pub fn recent_list_portal(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
+pub fn recent_list_portal<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + use<L> {
     flex_col((
         prose("Open Recent")
             .weight(FontWeight::BOLD)

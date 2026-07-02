@@ -76,6 +76,13 @@ macro_rules! app_state {
 	};
 }
 
+/// Used by multiple states
+#[derive(Clone, Default)]
+pub struct LauncherDialog {
+    pub open_dialog_active: bool,
+    pub create_dialog_active: bool,
+}
+
 app_state! {
     ActiveView =
 
@@ -85,13 +92,16 @@ app_state! {
     /// No database is open. Buttons for opening/creating a database
     Launcher {
         pub persistent: AppData,
+        pub dialog: LauncherDialog,
     },
     /// A database is open. Buttons for opening/creating a database, plus a search bar.
     /// Automatically open previously opened database to this view on startup, if possible
     SearchMenu {
+        pub persistent: AppData,
         pub database: DatabaseState,
-        persistent: AppData,
+        pub dialog: LauncherDialog,
         pub search_bar: String,
+        pub import_dialog_active: bool,
     },
     /// Grid of search results, plus a search bar, and button to go back to `SearchMenu`
     SearchResults {
@@ -137,16 +147,16 @@ impl_state_transition!(
     Launcher,
     SearchMenu,
     parameters: [database: DatabaseState],
-    clones: [persistent],
-    defaults: [search_bar]
+    clones: [persistent, dialog],
+    defaults: [search_bar, import_dialog_active]
 );
 
 impl_state_transition!(
     SearchMenu,
     SearchMenu,
     parameters: [database: DatabaseState],
-    clones: [persistent],
-    defaults: [search_bar]
+    clones: [persistent, dialog],
+    defaults: [search_bar, import_dialog_active]
 );
 
 impl_state_transition!(
@@ -170,7 +180,7 @@ impl_state_transition!(
     SearchMenu,
     parameters: [],
     clones: [database, persistent],
-    defaults: [search_bar]
+    defaults: [dialog, search_bar, import_dialog_active]
 );
 
 #[derive(Default)]
@@ -206,7 +216,7 @@ impl AppState {
         match AppData::open() {
             Ok(persistent) => Self {
                 active_view: Loading {
-                    next_state: Some(Launcher::new(persistent).into()),
+                    next_state: Some(Launcher::new(persistent, Default::default()).into()),
                     active_overlay: ActiveOverlay::None,
                 }
                 .into(),
@@ -269,6 +279,26 @@ impl Launcher {
         let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
         self.queue_next_state::<SearchMenu>((database,));
     }
+
+    pub fn start_open_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.dialog.open_dialog_active = true;
+    }
+
+    pub fn stop_open_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::None;
+        self.dialog.open_dialog_active = false;
+    }
+
+    pub fn start_create_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.dialog.create_dialog_active = true;
+    }
+
+    pub fn stop_create_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::None;
+        self.dialog.create_dialog_active = false;
+    }
 }
 
 impl SearchMenu {
@@ -296,6 +326,40 @@ impl SearchMenu {
         );
         let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
         self.queue_next_state::<SearchMenu>((database,));
+    }
+
+    pub fn start_open_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.dialog.open_dialog_active = true;
+    }
+
+    pub fn stop_open_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::None;
+        self.dialog.open_dialog_active = false;
+    }
+
+    pub fn start_create_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.dialog.create_dialog_active = true;
+    }
+
+    pub fn stop_create_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::None;
+        self.dialog.create_dialog_active = false;
+    }
+
+    pub fn start_import_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.import_dialog_active = true;
+    }
+
+    pub fn import_dialog_active(&self) -> bool {
+        self.import_dialog_active
+    }
+
+    pub fn stop_import_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::None;
+        self.import_dialog_active = false;
     }
 
     /// Queues the [`SearchResults`] state.

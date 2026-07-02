@@ -1,17 +1,15 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    path::PathBuf,
+};
 
 use file_tagger_internals::{
-    ActiveOverlay, ActiveView, AppState, Edit, Launcher, Loading, SearchMenu, SearchResults,
-    TransactionApi,
+    ActiveOverlay, ActiveView, AppData, AppState, Edit, Launcher, Loading, SearchMenu,
+    SearchResults, TransactionApi,
 };
-use xilem::{
-    AnyWidgetView, ViewCtx, WidgetView,
-    core::{NoElement, View, lens, one_of::Either},
-    view::zstack,
-};
+use xilem::{AnyWidgetView, WidgetView, core::lens, view::zstack};
 
 use crate::{
-    AnyTaskView,
     assets::Assets,
     view::{
         edit_view, error_view, launcher_view, loading_view, search_menu_view, search_results_view,
@@ -23,8 +21,6 @@ use crate::{
 pub struct XilemAppState {
     pub state: AppState,
     pub assets: Assets,
-    /// Displayed by [`crate::view::spinner_view`] when the active overlay is [`ActiveOverlay::Spinner`]
-    pub pending_task: Option<Box<dyn Fn(&mut AppState) -> Box<AnyTaskView<AppState>>>>,
     pub active_transaction: TransactionApi,
 }
 
@@ -91,7 +87,6 @@ impl XilemAppState {
         Self {
             state: AppState::new(),
             assets: Assets::new(),
-            pending_task: None,
             active_transaction: TransactionApi::new_disconnected(),
         }
     }
@@ -120,12 +115,101 @@ impl XilemAppState {
         //     Either::B(view)
         // }
     }
+}
 
-    pub fn run_task<V>(&mut self, view: impl Fn(&mut AppState) -> V + 'static)
-    where
-        V: View<AppState, (), ViewCtx, Element = NoElement> + Send + Sync,
-    {
-        self.set_active_overlay(ActiveOverlay::Spinner);
-        self.pending_task = Some(Box::new(move |state| Box::new(view(state))));
+pub trait LauncherState: 'static {
+    fn start_open_dialog(&mut self);
+    fn open_dialog_active(&self) -> bool;
+    fn stop_open_dialog(&mut self);
+    fn start_create_dialog(&mut self);
+    fn create_dialog_active(&self) -> bool;
+    fn stop_create_dialog(&mut self);
+    fn set_active_overlay(&mut self, overlay: ActiveOverlay);
+    fn persistent(&mut self) -> &mut AppData;
+    fn open_database_in_folder(&mut self, folder: PathBuf);
+    fn create_folder_with_database(&mut self, folder: PathBuf);
+}
+
+impl LauncherState for Launcher {
+    fn start_open_dialog(&mut self) {
+        self.start_open_dialog()
+    }
+
+    fn open_dialog_active(&self) -> bool {
+        self.dialog.open_dialog_active
+    }
+
+    fn stop_open_dialog(&mut self) {
+        self.stop_open_dialog()
+    }
+
+    fn start_create_dialog(&mut self) {
+        self.start_create_dialog()
+    }
+
+    fn create_dialog_active(&self) -> bool {
+        self.dialog.create_dialog_active
+    }
+
+    fn stop_create_dialog(&mut self) {
+        self.stop_create_dialog()
+    }
+
+    fn set_active_overlay(&mut self, overlay: ActiveOverlay) {
+        self.active_overlay = overlay;
+    }
+
+    fn persistent(&mut self) -> &mut AppData {
+        &mut self.persistent
+    }
+
+    fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database_in_folder(folder);
+    }
+
+    fn create_folder_with_database(&mut self, folder: PathBuf) {
+        self.create_folder_with_database(folder);
+    }
+}
+
+impl LauncherState for SearchMenu {
+    fn start_open_dialog(&mut self) {
+        self.start_open_dialog()
+    }
+
+    fn open_dialog_active(&self) -> bool {
+        self.dialog.open_dialog_active
+    }
+
+    fn stop_open_dialog(&mut self) {
+        self.stop_open_dialog()
+    }
+
+    fn start_create_dialog(&mut self) {
+        self.start_create_dialog()
+    }
+
+    fn create_dialog_active(&self) -> bool {
+        self.dialog.create_dialog_active
+    }
+
+    fn stop_create_dialog(&mut self) {
+        self.stop_create_dialog()
+    }
+
+    fn set_active_overlay(&mut self, overlay: ActiveOverlay) {
+        self.active_overlay = overlay;
+    }
+
+    fn persistent(&mut self) -> &mut AppData {
+        &mut self.persistent
+    }
+
+    fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database_in_folder(folder);
+    }
+
+    fn create_folder_with_database(&mut self, folder: PathBuf) {
+        self.create_folder_with_database(folder);
     }
 }

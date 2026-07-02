@@ -153,11 +153,8 @@ where
 }
 
 pub fn spinner_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
-    centered_flex_box(fork(
-        flex_col((spinner().dims(40.px()), prose("Waiting for dialog..."))),
-        state
-            .pending_task
-            .as_ref()
-            .map(|task_view| map_state(task_view(&mut state.state), DerefMut::deref_mut)),
-    ))
+    centered_flex_box(flex_col((
+        spinner().dims(40.px()),
+        prose("Waiting for dialog..."),
+    )))
 }
