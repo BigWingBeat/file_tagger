@@ -1,9 +1,8 @@
 //! Functions that define all the top-level views and handle state lensing
-use std::{fmt::Debug, marker::PhantomData, ops::DerefMut};
+use std::fmt::Debug;
 
 use xilem::{
     FontWeight, WidgetView,
-    core::{View, ViewMarker, ViewPathTracker, fork, lens, map_state},
     masonry::{
         layout::{AsUnit, Dim},
         parley::GenericFamily,
@@ -13,19 +12,13 @@ use xilem::{
     palette::css::{RED, TRANSPARENT},
     style::{Padding, Style},
     view::{
-        Button, FlexExt, FlexSpacer, MainAxisAlignment, TextInput, flex_col, flex_row, prose,
-        spinner, text_button,
+        Button, FlexExt, MainAxisAlignment, TextInput, flex_col, flex_row, prose, spinner,
+        text_button,
     },
 };
 
 use crate::XilemAppState;
-use file_tagger_internals::{DatabaseState, Edit, Launcher, Loading, SearchMenu, SearchResults};
-
-use {
-    launcher::launcher,
-    search_menu::{edit_buttons, search_bar},
-    search_results::search_results,
-};
+use file_tagger_internals::DatabaseState;
 
 mod app_data;
 mod edit;

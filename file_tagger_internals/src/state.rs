@@ -83,6 +83,13 @@ pub struct LauncherDialog {
     pub create_dialog_active: bool,
 }
 
+/// Used by multiple states
+#[derive(Clone, Default)]
+pub struct SearchMenuState {
+    pub search_bar: String,
+    pub import_dialog_active: bool,
+}
+
 app_state! {
     ActiveView =
 
@@ -94,25 +101,28 @@ app_state! {
         pub persistent: AppData,
         pub dialog: LauncherDialog,
     },
+
     /// A database is open. Buttons for opening/creating a database, plus a search bar.
     /// Automatically open previously opened database to this view on startup, if possible
     SearchMenu {
         pub persistent: AppData,
         pub database: DatabaseState,
         pub dialog: LauncherDialog,
-        pub search_bar: String,
-        pub import_dialog_active: bool,
+        pub search: SearchMenuState,
     },
+
     /// Grid of search results, plus a search bar, and button to go back to `SearchMenu`
     SearchResults {
-        pub database: DatabaseState,
         persistent: AppData,
+        pub database: DatabaseState,
+        pub search: SearchMenuState,
         entries: Vec<EditEntry>,
     },
+
     /// Edit tags of entries, and create new entries (tags) to use
     Edit {
-        pub database: DatabaseState,
         persistent: AppData,
+        pub database: DatabaseState,
         entries: Vec<EditEntry>,
         pub tag_search_bar_state: String,
         pub tag_create_name_state: String,
@@ -148,7 +158,7 @@ impl_state_transition!(
     SearchMenu,
     parameters: [database: DatabaseState],
     clones: [persistent, dialog],
-    defaults: [search_bar, import_dialog_active]
+    defaults: [search]
 );
 
 impl_state_transition!(
@@ -156,14 +166,14 @@ impl_state_transition!(
     SearchMenu,
     parameters: [database: DatabaseState],
     clones: [persistent, dialog],
-    defaults: [search_bar, import_dialog_active]
+    defaults: [search]
 );
 
 impl_state_transition!(
     SearchMenu,
     SearchResults,
     parameters: [],
-    clones: [database, persistent],
+    clones: [database, persistent, search],
     defaults: [entries]
 );
 
@@ -180,7 +190,23 @@ impl_state_transition!(
     SearchMenu,
     parameters: [],
     clones: [database, persistent],
-    defaults: [dialog, search_bar, import_dialog_active]
+    defaults: [dialog, search]
+);
+
+impl_state_transition!(
+    SearchResults,
+    SearchResults,
+    parameters: [],
+    clones: [database, persistent, search],
+    defaults: [entries]
+);
+
+impl_state_transition!(
+    SearchResults,
+    Edit,
+    parameters: [],
+    clones: [database, persistent],
+    defaults: [entries, tag_search_bar_state, tag_create_name_state]
 );
 
 #[derive(Default)]
@@ -350,16 +376,16 @@ impl SearchMenu {
 
     pub fn start_import_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
-        self.import_dialog_active = true;
+        self.search.import_dialog_active = true;
     }
 
     pub fn import_dialog_active(&self) -> bool {
-        self.import_dialog_active
+        self.search.import_dialog_active
     }
 
     pub fn stop_import_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
-        self.import_dialog_active = false;
+        self.search.import_dialog_active = false;
     }
 
     /// Queues the [`SearchResults`] state.
@@ -382,6 +408,36 @@ impl SearchMenu {
 impl SearchResults {
     pub fn entries(&self) -> &[EditEntry] {
         &self.entries
+    }
+
+    pub fn start_import_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::Spinner;
+        self.search.import_dialog_active = true;
+    }
+
+    pub fn import_dialog_active(&self) -> bool {
+        self.search.import_dialog_active
+    }
+
+    pub fn stop_import_dialog(&mut self) {
+        self.active_overlay = ActiveOverlay::None;
+        self.search.import_dialog_active = false;
+    }
+
+    /// Queues the [`SearchResults`] state.
+    pub fn search_results(&mut self) {
+        self.queue_next_state::<SearchResults>(());
+    }
+
+    /// Queues the [`Edit`] state.
+    pub fn edit_entries(&mut self) {
+        self.queue_next_state::<Edit>(());
+    }
+
+    /// The user picks one or more files, and the editor is opened with new template entries for those files
+    /// Queues the [`Edit`] state.
+    pub fn import_files(&mut self, files: &[PathBuf]) {
+        self.queue_next_state::<Edit>(());
     }
 }
 

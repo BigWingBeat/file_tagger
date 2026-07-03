@@ -213,3 +213,73 @@ impl LauncherState for SearchMenu {
         self.create_folder_with_database(folder);
     }
 }
+
+pub trait SearchState: 'static {
+    fn search_bar(&mut self) -> &mut String;
+    fn start_import_dialog(&mut self);
+    fn import_dialog_active(&self) -> bool;
+    fn stop_import_dialog(&mut self);
+    fn search_results(&mut self);
+    fn edit_entries(&mut self);
+    fn import_files(&mut self, files: &[PathBuf]);
+}
+
+impl SearchState for SearchMenu {
+    fn search_bar(&mut self) -> &mut String {
+        &mut self.search.search_bar
+    }
+
+    fn start_import_dialog(&mut self) {
+        self.start_import_dialog()
+    }
+
+    fn import_dialog_active(&self) -> bool {
+        self.import_dialog_active()
+    }
+
+    fn stop_import_dialog(&mut self) {
+        self.stop_import_dialog()
+    }
+
+    fn search_results(&mut self) {
+        self.search_results()
+    }
+
+    fn edit_entries(&mut self) {
+        self.edit_entries()
+    }
+
+    fn import_files(&mut self, files: &[PathBuf]) {
+        self.import_files(files)
+    }
+}
+
+impl SearchState for SearchResults {
+    fn search_bar(&mut self) -> &mut String {
+        &mut self.search.search_bar
+    }
+
+    fn start_import_dialog(&mut self) {
+        self.start_import_dialog()
+    }
+
+    fn import_dialog_active(&self) -> bool {
+        self.import_dialog_active()
+    }
+
+    fn stop_import_dialog(&mut self) {
+        self.stop_import_dialog()
+    }
+
+    fn search_results(&mut self) {
+        self.search_results()
+    }
+
+    fn edit_entries(&mut self) {
+        self.edit_entries()
+    }
+
+    fn import_files(&mut self, files: &[PathBuf]) {
+        self.import_files(files)
+    }
+}
