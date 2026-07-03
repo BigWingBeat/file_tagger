@@ -11,8 +11,8 @@ pub use crate::{
         UntypedTable, UntypedTransactionApi, initialize_transaction,
     },
     state::{
-        ActiveOverlay, ActiveView, AppState, Edit, EditEntry, Launcher, Loading, SearchMenu,
-        SearchResults,
+        ActiveOverlay, ActiveView, AppState, Edit, EditEntry, Launcher, LauncherState, Loading,
+        SearchMenu, SearchResults, SearchState,
     },
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };

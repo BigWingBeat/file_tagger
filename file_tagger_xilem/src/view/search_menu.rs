@@ -5,12 +5,9 @@ use xilem::{
     view::{FlexSpacer, MainAxisAlignment, flex_row, task, text_button, text_input},
 };
 
-use file_tagger_internals::SearchMenu;
+use file_tagger_internals::{SearchMenu, SearchState};
 
-use crate::{
-    state::SearchState,
-    view::{active_folder_name, centered_box, launcher::launcher, submittable_text_input},
-};
+use crate::view::{active_folder_name, centered_box, launcher::launcher, submittable_text_input};
 
 pub fn search_menu_view(state: &mut SearchMenu) -> impl WidgetView<SearchMenu> + use<> {
     centered_box((

@@ -12,12 +12,9 @@ use xilem::{
     },
 };
 
-use file_tagger_internals::Launcher;
+use file_tagger_internals::{Launcher, LauncherState};
 
-use crate::{
-    state::LauncherState,
-    view::{app_data::recent_list_portal, centered_box},
-};
+use crate::view::{app_data::recent_list_portal, centered_box};
 
 pub fn launcher_view(state: &mut Launcher) -> impl WidgetView<Launcher> + use<> {
     centered_box((launcher(state), FlexSpacer::Flex(1.0)))

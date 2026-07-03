@@ -283,20 +283,22 @@ impl EditEntry {
     }
 }
 
+pub trait LauncherState: 'static {
+    fn persistent(&mut self) -> &mut AppData;
+
+    fn start_open_dialog(&mut self);
+    fn open_dialog_active(&self) -> bool;
+    fn stop_open_dialog(&mut self);
+
+    fn start_create_dialog(&mut self);
+    fn create_dialog_active(&self) -> bool;
+    fn stop_create_dialog(&mut self);
+
+    fn open_database_in_folder(&mut self, folder: PathBuf);
+    fn create_folder_with_database(&mut self, folder: PathBuf);
+}
+
 impl Launcher {
-    /// The user picks a folder, and a database is created or opened in that folder.
-    /// Queues the [`SearchMenu` ]state.
-    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
-        self.open_database(folder);
-    }
-
-    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
-    /// Queues the [`SearchMenu`] state.
-    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
-        std::fs::create_dir(&folder).unwrap();
-        self.open_database(folder);
-    }
-
     fn open_database(&mut self, folder: PathBuf) {
         let folder = set_err!(
             self,
@@ -305,42 +307,56 @@ impl Launcher {
         let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
         self.queue_next_state::<SearchMenu>((database,));
     }
+}
 
-    pub fn start_open_dialog(&mut self) {
+impl LauncherState for Launcher {
+    fn persistent(&mut self) -> &mut AppData {
+        &mut self.persistent
+    }
+
+    fn start_open_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
         self.dialog.open_dialog_active = true;
     }
 
-    pub fn stop_open_dialog(&mut self) {
+    fn open_dialog_active(&self) -> bool {
+        self.dialog.open_dialog_active
+    }
+
+    fn stop_open_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.open_dialog_active = false;
     }
 
-    pub fn start_create_dialog(&mut self) {
+    fn start_create_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
         self.dialog.create_dialog_active = true;
     }
 
-    pub fn stop_create_dialog(&mut self) {
+    fn create_dialog_active(&self) -> bool {
+        self.dialog.create_dialog_active
+    }
+
+    fn stop_create_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.create_dialog_active = false;
     }
-}
 
-impl SearchMenu {
-    /// The user picks a folder, and a database is created or opened in that folder
-    /// Queues the [`SearchMenu`] state.
-    pub fn open_database_in_folder(&mut self, folder: PathBuf) {
+    /// The user picks a folder, and a database is created or opened in that folder.
+    /// Queues the [`SearchMenu` ]state.
+    fn open_database_in_folder(&mut self, folder: PathBuf) {
         self.open_database(folder);
     }
 
     /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
     /// Queues the [`SearchMenu`] state.
-    pub fn create_folder_with_database(&mut self, folder: PathBuf) {
+    fn create_folder_with_database(&mut self, folder: PathBuf) {
         std::fs::create_dir(&folder).unwrap();
         self.open_database(folder);
     }
+}
 
+impl SearchMenu {
     fn open_database(&mut self, folder: PathBuf) {
         if self.database.active_folder().path == folder {
             return;
@@ -353,54 +369,99 @@ impl SearchMenu {
         let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
         self.queue_next_state::<SearchMenu>((database,));
     }
+}
 
-    pub fn start_open_dialog(&mut self) {
+impl LauncherState for SearchMenu {
+    fn persistent(&mut self) -> &mut AppData {
+        &mut self.persistent
+    }
+
+    fn start_open_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
         self.dialog.open_dialog_active = true;
     }
 
-    pub fn stop_open_dialog(&mut self) {
+    fn open_dialog_active(&self) -> bool {
+        self.dialog.open_dialog_active
+    }
+
+    fn stop_open_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.open_dialog_active = false;
     }
 
-    pub fn start_create_dialog(&mut self) {
+    fn start_create_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
         self.dialog.create_dialog_active = true;
     }
 
-    pub fn stop_create_dialog(&mut self) {
+    fn create_dialog_active(&self) -> bool {
+        self.dialog.create_dialog_active
+    }
+
+    fn stop_create_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.create_dialog_active = false;
     }
 
-    pub fn start_import_dialog(&mut self) {
+    /// The user picks a folder, and a database is created or opened in that folder
+    /// Queues the [`SearchMenu`] state.
+    fn open_database_in_folder(&mut self, folder: PathBuf) {
+        self.open_database(folder);
+    }
+
+    /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
+    /// Queues the [`SearchMenu`] state.
+    fn create_folder_with_database(&mut self, folder: PathBuf) {
+        std::fs::create_dir(&folder).unwrap();
+        self.open_database(folder);
+    }
+}
+
+pub trait SearchState: 'static {
+    fn search_bar(&mut self) -> &mut String;
+
+    fn start_import_dialog(&mut self);
+    fn import_dialog_active(&self) -> bool;
+    fn stop_import_dialog(&mut self);
+
+    fn search_results(&mut self);
+    fn edit_entries(&mut self);
+    fn import_files(&mut self, files: &[PathBuf]);
+}
+
+impl SearchState for SearchMenu {
+    fn search_bar(&mut self) -> &mut String {
+        &mut self.search.search_bar
+    }
+
+    fn start_import_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
         self.search.import_dialog_active = true;
     }
 
-    pub fn import_dialog_active(&self) -> bool {
+    fn import_dialog_active(&self) -> bool {
         self.search.import_dialog_active
     }
 
-    pub fn stop_import_dialog(&mut self) {
+    fn stop_import_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
         self.search.import_dialog_active = false;
     }
 
     /// Queues the [`SearchResults`] state.
-    pub fn search_results(&mut self) {
+    fn search_results(&mut self) {
         self.queue_next_state::<SearchResults>(());
     }
 
     /// Queues the [`Edit`] state.
-    pub fn edit_entries(&mut self) {
+    fn edit_entries(&mut self) {
         self.queue_next_state::<Edit>(());
     }
 
     /// The user picks one or more files, and the editor is opened with new template entries for those files
     /// Queues the [`Edit`] state.
-    pub fn import_files(&mut self, files: &[PathBuf]) {
+    fn import_files(&mut self, files: &[PathBuf]) {
         self.queue_next_state::<Edit>(());
     }
 }
@@ -409,34 +470,40 @@ impl SearchResults {
     pub fn entries(&self) -> &[EditEntry] {
         &self.entries
     }
+}
 
-    pub fn start_import_dialog(&mut self) {
+impl SearchState for SearchResults {
+    fn search_bar(&mut self) -> &mut String {
+        &mut self.search.search_bar
+    }
+
+    fn start_import_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::Spinner;
         self.search.import_dialog_active = true;
     }
 
-    pub fn import_dialog_active(&self) -> bool {
+    fn import_dialog_active(&self) -> bool {
         self.search.import_dialog_active
     }
 
-    pub fn stop_import_dialog(&mut self) {
+    fn stop_import_dialog(&mut self) {
         self.active_overlay = ActiveOverlay::None;
         self.search.import_dialog_active = false;
     }
 
     /// Queues the [`SearchResults`] state.
-    pub fn search_results(&mut self) {
+    fn search_results(&mut self) {
         self.queue_next_state::<SearchResults>(());
     }
 
     /// Queues the [`Edit`] state.
-    pub fn edit_entries(&mut self) {
+    fn edit_entries(&mut self) {
         self.queue_next_state::<Edit>(());
     }
 
     /// The user picks one or more files, and the editor is opened with new template entries for those files
     /// Queues the [`Edit`] state.
-    pub fn import_files(&mut self, files: &[PathBuf]) {
+    fn import_files(&mut self, files: &[PathBuf]) {
         self.queue_next_state::<Edit>(());
     }
 }

@@ -1,3 +1,4 @@
+use file_tagger_internals::LauncherState;
 use xilem::{
     FontWeight, WidgetView,
     masonry::{
@@ -7,8 +8,6 @@ use xilem::{
     style::Style,
     view::{CrossAxisAlignment, button, flex_col, portal, prose},
 };
-
-use crate::state::LauncherState;
 
 pub fn recent_list<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + use<L> {
     // The width of these buttons shouldn't depend on the size of the displayed paths, as those will change.
