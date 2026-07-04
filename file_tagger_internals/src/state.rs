@@ -220,10 +220,6 @@ pub enum ActiveOverlay {
     Spinner,
 }
 
-pub struct AppState {
-    pub active_view: ActiveView,
-}
-
 macro_rules! set_err {
     ($this:ident, $result:expr $(,)?) => {{
         let result: Result<_, Report> = $result;
@@ -237,32 +233,21 @@ macro_rules! set_err {
     }};
 }
 
-impl AppState {
+impl ActiveView {
     pub fn new() -> Self {
         match AppData::open() {
-            Ok(persistent) => Self {
-                active_view: Loading {
-                    next_state: Some(Launcher::new(persistent, Default::default()).into()),
-                    active_overlay: ActiveOverlay::None,
-                }
-                .into(),
-            },
-            Err(e) => Self {
-                active_view: Loading {
-                    next_state: None,
-                    active_overlay: ActiveOverlay::Error(e),
-                }
-                .into(),
-            },
+            Ok(persistent) => Loading {
+                next_state: Some(Launcher::new(persistent, Default::default()).into()),
+                active_overlay: ActiveOverlay::None,
+            }
+            .into(),
+
+            Err(e) => Loading {
+                next_state: None,
+                active_overlay: ActiveOverlay::Error(e),
+            }
+            .into(),
         }
-    }
-
-    pub fn active_overlay(&self) -> &ActiveOverlay {
-        self.active_view.active_overlay()
-    }
-
-    pub fn set_active_overlay(&mut self, overlay: ActiveOverlay) {
-        self.active_view.set_active_overlay(overlay);
     }
 }
 

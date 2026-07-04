@@ -1,8 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use file_tagger_internals::{
-    ActiveOverlay, ActiveView, AppState, Edit, Launcher, Loading, SearchMenu, SearchResults,
-    TransactionApi,
+    ActiveOverlay, ActiveView, Edit, Launcher, Loading, SearchMenu, SearchResults, TransactionApi,
 };
 use xilem::{AnyWidgetView, WidgetView, core::lens, view::zstack};
 
@@ -16,7 +15,7 @@ use crate::{
 
 /// State wrapper so we can store xilem-specific state
 pub struct XilemAppState {
-    pub state: AppState,
+    pub state: ActiveView,
     pub assets: Assets,
     pub active_transaction: TransactionApi,
 }
@@ -32,7 +31,7 @@ macro_rules! impl_lens_view {
             type ParentState = XilemAppState;
             fn view(&mut self) -> Box<AnyWidgetView<XilemAppState>> {
                 lens($fn, |state: &mut XilemAppState| {
-                    match &mut state.active_view {
+                    match &mut **state {
                         ActiveView::$variant(inner) => inner,
                         // See <https://github.com/linebender/xilem/issues/1418>
                         _ => unreachable!(
@@ -55,7 +54,7 @@ impl_lens_view!(Edit, edit_view);
 impl LensView for XilemAppState {
     type ParentState = Self;
     fn view(&mut self) -> Box<AnyWidgetView<XilemAppState>> {
-        match &mut self.active_view {
+        match &mut **self {
             ActiveView::Loading(loading) => loading.view(),
             ActiveView::Launcher(launcher) => launcher.view(),
             ActiveView::SearchMenu(search_menu) => search_menu.view(),
@@ -66,7 +65,7 @@ impl LensView for XilemAppState {
 }
 
 impl Deref for XilemAppState {
-    type Target = AppState;
+    type Target = ActiveView;
 
     fn deref(&self) -> &Self::Target {
         &self.state
@@ -82,7 +81,7 @@ impl DerefMut for XilemAppState {
 impl XilemAppState {
     pub fn new() -> Self {
         Self {
-            state: AppState::new(),
+            state: ActiveView::new(),
             assets: Assets::new(),
             active_transaction: TransactionApi::new_disconnected(),
         }
@@ -91,7 +90,7 @@ impl XilemAppState {
     pub fn app_logic(&mut self) -> impl WidgetView<XilemAppState> + use<> {
         // `update_to_next` must be called before the view is constructed to avoid state desync
         // If the state variant changes in-between then and `teardown`, we will hit the above `unreachable!`s
-        self.active_view.update_to_next();
+        self.update_to_next();
         let view = self.view();
 
         let overlay = match self.active_overlay() {
