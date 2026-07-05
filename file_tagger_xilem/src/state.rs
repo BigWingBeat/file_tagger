@@ -228,7 +228,11 @@ pub fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
         ActiveOverlay::None => None,
         ActiveOverlay::Error(report) => Some(
             error_view(report, |state: &mut AppState| {
-                state.set_active_overlay(ActiveOverlay::None);
+                if let ActiveView::UnrecoverableError(_) = state {
+                    std::process::exit(1)
+                } else {
+                    state.set_active_overlay(ActiveOverlay::None)
+                }
             })
             .boxed(),
         ),
