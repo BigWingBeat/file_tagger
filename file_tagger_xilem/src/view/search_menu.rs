@@ -39,7 +39,6 @@ pub fn edit_buttons<S: SearchState>(state: &mut S) -> impl WidgetView<S> + use<S
         fork(
             text_button("Import Files", |state: &mut S| {
                 state.start_import_dialog();
-                true;
             }),
             state.import_dialog_active().then_some(task(
                 |proxy, _| async move {

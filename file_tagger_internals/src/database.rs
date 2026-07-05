@@ -13,7 +13,7 @@ pub use backend::{
 };
 use backend::{Builder, BuilderImpl, TableImpl};
 pub use transaction::{
-    TransactionApi as UntypedTransactionApi, TransactionHandle,
+    TransactionApi as UntypedTransactionApi,
     initialize_transaction as initialize_untyped_transaction,
 };
 
@@ -163,11 +163,6 @@ where
 pub struct TransactionApi(UntypedTransactionApi);
 
 impl TransactionApi {
-    /// Used similarly to `Database::create_temporary`, should be replaced when Xilem's enum state ergonomics get better
-    pub fn new_disconnected() -> Self {
-        Self(UntypedTransactionApi::new_disconnected())
-    }
-
     pub fn get<Key, Value>(
         &self,
         table: &Table<Key, Value>,
@@ -218,9 +213,8 @@ impl TransactionApi {
     }
 }
 
-pub fn initialize_transaction(db: Database) -> (TransactionApi, TransactionHandle) {
-    let (api, handle) = initialize_untyped_transaction(db);
-    (TransactionApi(api), handle)
+pub fn initialize_transaction(db: Database) -> TransactionApi {
+    TransactionApi(initialize_untyped_transaction(db))
 }
 
 /// Like a `Vec<String>` but where all the strings are stored inline in a single heap allocation.

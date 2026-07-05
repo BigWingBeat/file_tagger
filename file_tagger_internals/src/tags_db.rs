@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    DB_FOLDER_NAME, TransactionApi, TransactionHandle,
+    DB_FOLDER_NAME, TransactionApi,
     app_data::RecentFolder,
     database::{
         self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
@@ -168,7 +168,7 @@ impl TagsDatabase {
         })
     }
 
-    pub fn initialize_transaction(&self) -> (TransactionApi, TransactionHandle) {
+    pub fn initialize_transaction(&self) -> TransactionApi {
         initialize_transaction(self.database.clone())
     }
 }

@@ -1,7 +1,7 @@
-use file_tagger_internals::{Edit, Tag, TransactionHandle};
+use file_tagger_internals::{Edit, Tag};
 use xilem::{
-    FontWeight, ViewCtx, WidgetView,
-    core::{MessageCtx, MessageResult, Mut, NoElement, View, ViewMarker, fork, one_of::Either},
+    FontWeight, WidgetView,
+    core::one_of::Either,
     masonry::{
         layout::{AsUnit, Dim},
         properties::Dimensions,
@@ -14,13 +14,13 @@ use xilem::{
     },
 };
 
-use crate::view::{container_view, submittable_text_input};
+use crate::{
+    state::AppData,
+    view::{container_view, submittable_text_input},
+};
 
 pub fn edit_view(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
-    fork(
-        flex_col((entry_list(state), tag_list(state))).padding(10.px()),
-        TransactionWorker,
-    )
+    flex_col((entry_list(state), tag_list(state))).padding(10.px())
 }
 
 container_view! {
@@ -66,7 +66,7 @@ fn entry_tiles(state: &Edit) -> impl FlexSequence<Edit> + use<> {
             tile(
                 button(
                     flex_col((
-                        svg(state.assets.tag.clone()).dims(48.px()),
+                        svg(state.data().assets.tag.clone()).dims(48.px()),
                         label(entry.name.clone())
                             .weight(FontWeight::MEDIUM)
                             .text_size(20.0),
@@ -194,61 +194,4 @@ fn tag_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
             text_button("Cancel", |state: &mut Edit| state.search_menu()),
         )),
     ))
-}
-
-/// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
-struct TransactionWorker;
-
-impl ViewMarker for TransactionWorker {}
-impl View<Edit, (), ViewCtx> for TransactionWorker {
-    type Element = NoElement;
-
-    type ViewState = TransactionHandle;
-
-    fn build(&self, _ctx: &mut ViewCtx, app_state: &mut Edit) -> (Self::Element, Self::ViewState) {
-        let db = app_state.database.inner_db_handle().clone();
-        let (api, handle) = db.initialize_transaction();
-        app_state.active_transaction = api;
-        (NoElement, handle)
-    }
-
-    fn rebuild(
-        &self,
-        _prev: &Self,
-        _view_state: &mut Self::ViewState,
-        _ctx: &mut ViewCtx,
-        _element: Mut<'_, Self::Element>,
-        _app_state: &mut Edit,
-    ) {
-        // `rebuild` is for handling changes in state, but there are no possible state changes we care about,
-        // so we have nothing to do here.
-        // The only relevant state change would be the database being entirely replaced with a new one,
-        // but that can only happen in the `launcher` view, and not here in the `edit` view, so it's fine.
-        // The database type is not diffable anyway, so we couldn't handle that case even if we wanted to.
-    }
-
-    fn teardown(
-        &self,
-        _view_state: &mut Self::ViewState,
-        _ctx: &mut ViewCtx,
-        _element: Mut<'_, Self::Element>,
-    ) {
-        // `teardown` means this `View` is no longer in the UI tree, which means we have left the `edit` view entirely.
-        // This should only be possible by pressing either the "cancel" or "save changes" buttons, both of which
-        // should finalize the transaction and terminate the thread on their own. As a failsafe, the `ViewState` type
-        // will be dropped shortly after this function returns, which will attempt to finalize the transaction anyway.
-    }
-
-    fn message(
-        &self,
-        _view_state: &mut Self::ViewState,
-        message: &mut MessageCtx,
-        _element: Mut<'_, Self::Element>,
-        _app_state: &mut Edit,
-    ) -> MessageResult<()> {
-        eprintln!(
-            "Message arrived in TransactionWorker::message, but TransactionWorker doesn't consume any messages, this is a bug. {message:?}"
-        );
-        MessageResult::Stale
-    }
 }

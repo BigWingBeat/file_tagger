@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{any::Any, collections::BTreeSet, path::PathBuf};
 
 use miette::{IntoDiagnostic, Report};
 
@@ -9,25 +9,33 @@ use crate::{AppData, DatabaseState, Entry, Tag};
 macro_rules! app_state {
 	( $name:ident = $( $(#[$meta:meta])* $variant:ident { $($v:vis $field:ident: $t:ty),* $(,)* } ),* $(,)* ) => {
 	    $(
-            pub struct $variant<Next = $name<()>> { next_state: Option<Next>, pub active_overlay: ActiveOverlay, $($v $field: $t),* }
+            pub struct $variant<Next = $name<()>> {
+                next_state: Option<Next>,
+                pub active_overlay: ActiveOverlay,
+                pub data: Box<dyn Any>,
+                $($v $field: $t),*
+            }
 
             impl<Next> $variant<Next> {
-                pub fn new($($field: $t),*) -> Self {
-                    Self { next_state: None, active_overlay: ActiveOverlay::None, $($field),* }
+                pub fn new<T: Any>(data: T, $($field: $t),*) -> Self {
+                    let data = Box::new(data);
+                    Self { next_state: None, active_overlay: ActiveOverlay::None, data, $($field),* }
                 }
+            }
 
+            impl $variant {
                 pub fn queue_next_state<T>(&mut self, parameters: <Self as StateTransition<T>>::Parameters)
                 where
                     Self: StateTransition<T>,
-                    <Self as StateTransition<T>>::Next: Into<Next>,
+                    <Self as StateTransition<T>>::Next: Into<$name<()>>,
                 {
-                    self.next_state = Some(self.to_state(parameters).into())
+                    self.next_state = Some(self.to_state(parameters).into());
                 }
             }
 
             impl From<$variant<()>> for $variant {
-                fn from(_value: $variant<()>) -> Self {
-                    Self { next_state: None, active_overlay: ActiveOverlay::None, $($field: _value.$field),* }
+                fn from(value: $variant<()>) -> Self {
+                    Self { next_state: None, active_overlay: ActiveOverlay::None, data: value.data, $($field: value.$field),* }
                 }
             }
 
@@ -50,7 +58,7 @@ macro_rules! app_state {
             }
         }
 
-        impl $name {
+        impl<Next> $name<Next> {
             pub fn active_overlay(&self) -> &ActiveOverlay {
                 match &self {
                     $( $name::$variant(inner) => &inner.active_overlay ),*
@@ -63,13 +71,45 @@ macro_rules! app_state {
                 }
             }
 
-            pub fn update_to_next(&mut self) {
-                let next = match self {
-                    $( $name::$variant(inner) => inner.next_state.take() ),*
+            pub fn data(&self) -> &dyn Any {
+                match self {
+                    $( $name::$variant(inner) => &*inner.data ),*
+                }
+            }
+
+            pub fn data_mut(&mut self) -> &mut dyn Any {
+                match self {
+                    $( $name::$variant(inner) => &mut *inner.data ),*
+                }
+            }
+
+            pub fn set_data<T: Any>(&mut self, data: T) {
+                let data = Box::new(data);
+                self.replace_data(data);
+            }
+
+            pub fn replace_data(&mut self, data: Box<dyn Any>) -> Box<dyn Any> {
+                match self {
+                    $( $name::$variant(inner) => std::mem::replace(&mut inner.data, data) ),*
+                }
+            }
+        }
+
+        impl $name {
+            pub fn update_to_next<F>(&mut self, map_data: F)
+            where
+                F: FnOnce(&Self, &Self, Box<dyn Any>) -> Box<dyn Any>
+            {
+                let (next, data) = match self {
+                    // This `inner` will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
+                    $( $name::$variant(inner) => (inner.next_state.take(), std::mem::replace(&mut inner.data, Box::new(()))) ),*
                 };
 
                 if let Some(next) = next {
-                    *self = next.into();
+                    let mut next = next.into();
+                    let data = map_data(self, &next, data);
+                    next.replace_data(data);
+                    *self = next;
                 }
             }
         }
@@ -144,6 +184,7 @@ macro_rules! impl_state_transition {
                 $to {
                     next_state: None,
                     active_overlay: ActiveOverlay::None,
+                    data: Box::new(()),
                     $( $field, )*
                     $( $clone: self.$clone.clone(), )*
                     $( $default: Default::default(), )*
@@ -234,17 +275,21 @@ macro_rules! set_err {
 }
 
 impl ActiveView {
-    pub fn new() -> Self {
+    pub fn new<T: Any>(data: T) -> Self {
         match AppData::open() {
             Ok(persistent) => Loading {
-                next_state: Some(Launcher::new(persistent, Default::default()).into()),
+                next_state: Some(
+                    Launcher::new(Box::new(()), persistent, Default::default()).into(),
+                ),
                 active_overlay: ActiveOverlay::None,
+                data: Box::new(data),
             }
             .into(),
 
             Err(e) => Loading {
                 next_state: None,
                 active_overlay: ActiveOverlay::Error(e),
+                data: Box::new(data),
             }
             .into(),
         }

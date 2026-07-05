@@ -7,8 +7,8 @@ pub use crate::{
     app_data::{AppData, RecentFolder},
     database::{
         Buffer, Error as DatabaseError, FinalizeTransaction, Result as DatabaseResult, Table,
-        Transaction, TransactionApi, TransactionHandle, TransactionImpl, TransactionResult,
-        UntypedTable, UntypedTransactionApi, initialize_transaction,
+        Transaction, TransactionApi, TransactionImpl, TransactionResult, UntypedTable,
+        UntypedTransactionApi, initialize_transaction,
     },
     state::{
         ActiveOverlay, ActiveView, Edit, EditEntry, Launcher, LauncherState, Loading, SearchMenu,

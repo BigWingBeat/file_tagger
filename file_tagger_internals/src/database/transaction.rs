@@ -26,31 +26,11 @@ enum TransReaction {
 }
 
 /// Talks to the transaction thread
+/// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
 pub struct TransactionApi {
     sender: SyncSender<TransAction>,
     receiver: Receiver<TransReaction>,
-}
-
-impl TransactionApi {
-    /// Used similarly to `Database::create_temporary`, should be replaced when Xilem's enum state ergonomics get better
-    pub fn new_disconnected() -> Self {
-        Self::new().0
-    }
-
-    fn new() -> (Self, Receiver<TransAction>, SyncSender<TransReaction>) {
-        // Capacities of 0 because we always wait to get a result back right after sending an action,
-        // so it's not possible for multiple messages to get queued up on either channel
-        let (action_sender, action_receiver) = std::sync::mpsc::sync_channel(0);
-        let (reaction_sender, reaction_receiver) = std::sync::mpsc::sync_channel(0);
-        (
-            Self {
-                sender: action_sender,
-                receiver: reaction_receiver,
-            },
-            action_receiver,
-            reaction_sender,
-        )
-    }
+    thread_handle: Option<JoinHandle<()>>,
 }
 
 impl TransactionApi {
@@ -102,24 +82,22 @@ impl TransactionApi {
     }
 }
 
-/// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
-pub struct TransactionHandle {
-    on_drop_sender: SyncSender<TransAction>,
-    thread_handle: Option<JoinHandle<()>>,
-}
-
-impl Drop for TransactionHandle {
+impl Drop for TransactionApi {
     fn drop(&mut self) {
         // Failsafe in case the transaction was dropped without being finalized
-        let _ = self.on_drop_sender.send(TransAction::Rollback);
+        let _ = self.sender.send(TransAction::Rollback);
         self.thread_handle.take().unwrap().join().unwrap();
     }
 }
 
-pub fn initialize_transaction(db: Database) -> (TransactionApi, TransactionHandle) {
-    let (api, receiver, sender) = TransactionApi::new();
-    let on_drop_sender = api.sender.clone();
+pub fn initialize_transaction(db: Database) -> TransactionApi {
+    // Capacities of 0 because we always wait to get a result back right after sending an action,
+    // so it's not possible for multiple messages to get queued up on either channel
+    let (action_sender, action_receiver) = std::sync::mpsc::sync_channel(0);
+    let (reaction_sender, reaction_receiver) = std::sync::mpsc::sync_channel(0);
     let thread = std::thread::spawn(move || {
+        let receiver = action_receiver;
+        let sender = reaction_sender;
         let result = db.transaction(|mut transaction| {
             // This must always send a `TransReaction` back after each received `TransAction`, otherwise it will deadlock
             // (Except for `rollback` which is infallible and thus has no result to return)
@@ -157,10 +135,9 @@ pub fn initialize_transaction(db: Database) -> (TransactionApi, TransactionHandl
         }
     });
 
-    let handle = TransactionHandle {
-        on_drop_sender,
+    TransactionApi {
+        sender: action_sender,
+        receiver: reaction_receiver,
         thread_handle: Some(thread),
-    };
-
-    (api, handle)
+    }
 }

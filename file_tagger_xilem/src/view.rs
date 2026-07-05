@@ -17,7 +17,6 @@ use xilem::{
     },
 };
 
-use crate::XilemAppState;
 use file_tagger_internals::DatabaseState;
 
 mod app_data;
@@ -26,6 +25,8 @@ mod launcher;
 mod loading;
 mod search_menu;
 mod search_results;
+
+use crate::state::AppState;
 
 pub use {
     edit::edit_view, launcher::launcher_view, loading::loading_view, search_menu::search_menu_view,
@@ -145,7 +146,7 @@ where
     ))
 }
 
-pub fn spinner_view(state: &mut XilemAppState) -> impl WidgetView<XilemAppState> {
+pub fn spinner_view(state: &mut AppState) -> impl WidgetView<AppState> {
     centered_flex_box(flex_col((
         spinner().dims(40.px()),
         prose("Waiting for dialog..."),

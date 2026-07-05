@@ -4,7 +4,7 @@ use xilem::{
     core::{AnyView, NoElement},
 };
 
-use crate::state::XilemAppState;
+use crate::state::{app_logic, init_state};
 
 mod assets;
 mod state;
@@ -39,11 +39,7 @@ fn set_error_handler() {
 
 fn main() -> miette::Result<()> {
     set_error_handler();
-    Xilem::new_simple(
-        XilemAppState::new(),
-        XilemAppState::app_logic,
-        WindowOptions::new(WINDOW_TITLE),
-    )
-    .run_in(EventLoop::with_user_event())
-    .into_diagnostic()
+    Xilem::new_simple(init_state(), app_logic, WindowOptions::new(WINDOW_TITLE))
+        .run_in(EventLoop::with_user_event())
+        .into_diagnostic()
 }
