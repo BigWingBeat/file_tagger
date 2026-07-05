@@ -1,15 +1,19 @@
 use std::any::Any;
 
 use file_tagger_internals::{
-    ActiveOverlay, ActiveView, Edit, Launcher, Loading, SearchMenu, SearchResults, TransactionApi,
+    ActiveOverlay, ActiveView, Edit, Launcher, SearchMenu, SearchResults, TransactionApi,
+    UnrecoverableError,
 };
-use xilem::{AnyWidgetView, WidgetView, core::lens, view::zstack};
+use xilem::{
+    AnyWidgetView, WidgetView,
+    core::lens,
+    view::{label, zstack},
+};
 
 use crate::{
     assets::Assets,
     view::{
-        edit_view, error_view, launcher_view, loading_view, search_menu_view, search_results_view,
-        spinner_view,
+        edit_view, error_view, launcher_view, search_menu_view, search_results_view, spinner_view,
     },
 };
 
@@ -58,7 +62,7 @@ macro_rules! impl_app_data {
     };
 }
 
-impl_app_data!(Loading, NoTransactionData);
+impl_app_data!(UnrecoverableError, NoTransactionData);
 impl_app_data!(Launcher, NoTransactionData);
 impl_app_data!(SearchMenu, NoTransactionData);
 impl_app_data!(SearchResults, NoTransactionData);
@@ -111,29 +115,43 @@ impl MapAppData for (&SearchResults, &Edit) {
 
 fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn Any>) -> Box<dyn Any> {
     match (from, to) {
-        (ActiveView::Loading(from), ActiveView::Loading(to)) => (from, to).map_data(data),
-        (ActiveView::Loading(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
-        (ActiveView::Loading(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
-        (ActiveView::Loading(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
-        (ActiveView::Loading(from), ActiveView::Edit(to)) => unreachable!(),
-        (ActiveView::Launcher(from), ActiveView::Loading(to)) => (from, to).map_data(data),
+        (ActiveView::UnrecoverableError(from), ActiveView::UnrecoverableError(to)) => {
+            (from, to).map_data(data)
+        }
+        (ActiveView::UnrecoverableError(from), ActiveView::Launcher(to)) => {
+            (from, to).map_data(data)
+        }
+        (ActiveView::UnrecoverableError(from), ActiveView::SearchMenu(to)) => {
+            (from, to).map_data(data)
+        }
+        (ActiveView::UnrecoverableError(from), ActiveView::SearchResults(to)) => {
+            (from, to).map_data(data)
+        }
+        (ActiveView::UnrecoverableError(from), ActiveView::Edit(to)) => unreachable!(),
+        (ActiveView::Launcher(from), ActiveView::UnrecoverableError(to)) => {
+            (from, to).map_data(data)
+        }
         (ActiveView::Launcher(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
         (ActiveView::Launcher(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
         (ActiveView::Launcher(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
         (ActiveView::Launcher(from), ActiveView::Edit(to)) => unreachable!(),
-        (ActiveView::SearchMenu(from), ActiveView::Loading(to)) => (from, to).map_data(data),
+        (ActiveView::SearchMenu(from), ActiveView::UnrecoverableError(to)) => {
+            (from, to).map_data(data)
+        }
         (ActiveView::SearchMenu(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
         (ActiveView::SearchMenu(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
         (ActiveView::SearchMenu(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
         (ActiveView::SearchMenu(from), ActiveView::Edit(to)) => (from, to).map_data(data),
-        (ActiveView::SearchResults(from), ActiveView::Loading(to)) => (from, to).map_data(data),
+        (ActiveView::SearchResults(from), ActiveView::UnrecoverableError(to)) => {
+            (from, to).map_data(data)
+        }
         (ActiveView::SearchResults(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
         (ActiveView::SearchResults(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
         (ActiveView::SearchResults(from), ActiveView::SearchResults(to)) => {
             (from, to).map_data(data)
         }
         (ActiveView::SearchResults(from), ActiveView::Edit(to)) => (from, to).map_data(data),
-        (ActiveView::Edit(from), ActiveView::Loading(to)) => (from, to).map_data(data),
+        (ActiveView::Edit(from), ActiveView::UnrecoverableError(to)) => (from, to).map_data(data),
         (ActiveView::Edit(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
         (ActiveView::Edit(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
         (ActiveView::Edit(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
@@ -166,17 +184,23 @@ macro_rules! impl_lens_view {
     };
 }
 
-impl_lens_view!(Loading, loading_view);
 impl_lens_view!(Launcher, launcher_view);
 impl_lens_view!(SearchMenu, search_menu_view);
 impl_lens_view!(SearchResults, search_results_view);
 impl_lens_view!(Edit, edit_view);
 
+impl LensView for UnrecoverableError {
+    type ParentState = ActiveView;
+    fn view(&mut self) -> Box<AnyWidgetView<Self::ParentState>> {
+        label("").boxed()
+    }
+}
+
 impl LensView for ActiveView {
     type ParentState = Self;
     fn view(&mut self) -> Box<AnyWidgetView<ActiveView>> {
         match self {
-            ActiveView::Loading(loading) => loading.view(),
+            ActiveView::UnrecoverableError(error) => error.view(),
             ActiveView::Launcher(launcher) => launcher.view(),
             ActiveView::SearchMenu(search_menu) => search_menu.view(),
             ActiveView::SearchResults(search_results) => search_results.view(),

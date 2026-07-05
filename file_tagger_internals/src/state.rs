@@ -133,8 +133,8 @@ pub struct SearchMenuState {
 app_state! {
     ActiveView =
 
-    /// Startup view while the persistent AppData database is being opened
-    Loading {},
+    /// Oh no
+    UnrecoverableError {},
 
     /// No database is open. Buttons for opening/creating a database
     Launcher {
@@ -277,16 +277,8 @@ macro_rules! set_err {
 impl ActiveView {
     pub fn new<T: Any>(data: T) -> Self {
         match AppData::open() {
-            Ok(persistent) => Loading {
-                next_state: Some(
-                    Launcher::new(Box::new(()), persistent, Default::default()).into(),
-                ),
-                active_overlay: ActiveOverlay::None,
-                data: Box::new(data),
-            }
-            .into(),
-
-            Err(e) => Loading {
+            Ok(persistent) => Launcher::new(Box::new(data), persistent, Default::default()).into(),
+            Err(e) => UnrecoverableError {
                 next_state: None,
                 active_overlay: ActiveOverlay::Error(e),
                 data: Box::new(data),

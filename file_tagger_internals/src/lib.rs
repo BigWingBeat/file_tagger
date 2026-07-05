@@ -11,8 +11,8 @@ pub use crate::{
         UntypedTransactionApi, initialize_transaction,
     },
     state::{
-        ActiveOverlay, ActiveView, Edit, EditEntry, Launcher, LauncherState, Loading, SearchMenu,
-        SearchResults, SearchState,
+        ActiveOverlay, ActiveView, Edit, EditEntry, Launcher, LauncherState, SearchMenu,
+        SearchResults, SearchState, UnrecoverableError,
     },
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };

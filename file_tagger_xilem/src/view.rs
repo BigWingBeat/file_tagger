@@ -22,14 +22,13 @@ use file_tagger_internals::DatabaseState;
 mod app_data;
 mod edit;
 mod launcher;
-mod loading;
 mod search_menu;
 mod search_results;
 
 use crate::state::AppState;
 
 pub use {
-    edit::edit_view, launcher::launcher_view, loading::loading_view, search_menu::search_menu_view,
+    edit::edit_view, launcher::launcher_view, search_menu::search_menu_view,
     search_results::search_results_view,
 };
 
