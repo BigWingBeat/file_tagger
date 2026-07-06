@@ -87,6 +87,7 @@ where
     }
 }
 
+// Manual impl for the two special cases, we would need negative trait bounds (i.e. `where From: !StateTransition<Next = To>`) to generalize these
 impl MapAppData for (&SearchMenu, &Edit) {
     fn map_data(self, data: Box<dyn Any>) -> Box<dyn Any> {
         let data = data
@@ -113,51 +114,42 @@ impl MapAppData for (&SearchResults, &Edit) {
     }
 }
 
-fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn Any>) -> Box<dyn Any> {
-    match (from, to) {
-        (ActiveView::UnrecoverableError(from), ActiveView::UnrecoverableError(to)) => {
-            (from, to).map_data(data)
+// Combinatorics yayy
+macro_rules! generate_map_data_fn {
+    (variants: [$($variant:ident),* $(,)*], unreachable: [$($from:ident -> $to:ident),* $(,)*] $(,)*) => {
+        generate_map_data_fn!(@0 $($variant),* | ($($variant),*) | ($(($from, $to)),*));
+    };
+    (@0 $($variant1:ident),* | $variant2:tt | $unreachable:tt) => {
+        generate_map_data_fn!(@1 [$(($variant1, $variant2)),*] | $unreachable | $);
+    };
+    (@1 [$(($variant1:ident, ($($variant2:ident),*))),*] | ($(($from:ident, $to:ident)),*) | $d:tt) => {
+        fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn Any>) -> Box<dyn Any> {
+            macro_rules! generated_macro_to_match_unreachable_transitions {
+                $(($d from_inner:ident $d to_inner:ident $from $to) => { unreachable!() };)*
+                ($d from_inner:ident $d to_inner:ident $d from:ident $d to:ident) => { ($from_inner, $to_inner).map_data(data) };
+            }
+
+            use ActiveView::*;
+            match (from, to) {
+                $($(($variant1(_from), $variant2(_to)) => { generated_macro_to_match_unreachable_transitions!(_from _to $variant1 $variant2) } )*)*
+            }
         }
-        (ActiveView::UnrecoverableError(from), ActiveView::Launcher(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::UnrecoverableError(from), ActiveView::SearchMenu(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::UnrecoverableError(from), ActiveView::SearchResults(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::UnrecoverableError(from), ActiveView::Edit(to)) => unreachable!(),
-        (ActiveView::Launcher(from), ActiveView::UnrecoverableError(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::Launcher(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
-        (ActiveView::Launcher(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
-        (ActiveView::Launcher(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
-        (ActiveView::Launcher(from), ActiveView::Edit(to)) => unreachable!(),
-        (ActiveView::SearchMenu(from), ActiveView::UnrecoverableError(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::SearchMenu(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
-        (ActiveView::SearchMenu(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
-        (ActiveView::SearchMenu(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
-        (ActiveView::SearchMenu(from), ActiveView::Edit(to)) => (from, to).map_data(data),
-        (ActiveView::SearchResults(from), ActiveView::UnrecoverableError(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::SearchResults(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
-        (ActiveView::SearchResults(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
-        (ActiveView::SearchResults(from), ActiveView::SearchResults(to)) => {
-            (from, to).map_data(data)
-        }
-        (ActiveView::SearchResults(from), ActiveView::Edit(to)) => (from, to).map_data(data),
-        (ActiveView::Edit(from), ActiveView::UnrecoverableError(to)) => (from, to).map_data(data),
-        (ActiveView::Edit(from), ActiveView::Launcher(to)) => (from, to).map_data(data),
-        (ActiveView::Edit(from), ActiveView::SearchMenu(to)) => (from, to).map_data(data),
-        (ActiveView::Edit(from), ActiveView::SearchResults(to)) => (from, to).map_data(data),
-        (ActiveView::Edit(from), ActiveView::Edit(to)) => (from, to).map_data(data),
     }
 }
+
+generate_map_data_fn!(
+    variants: [
+        UnrecoverableError,
+        Launcher,
+        SearchMenu,
+        SearchResults,
+        Edit,
+    ],
+    unreachable: [
+        UnrecoverableError -> Edit,
+        Launcher -> Edit,
+    ],
+);
 
 pub trait LensView {
     type ParentState;
