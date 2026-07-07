@@ -279,7 +279,7 @@ macro_rules! set_err {
 impl ActiveView {
     pub fn new<T: AnyDebug>(data: T) -> Self {
         match AppData::open() {
-            Ok(persistent) => Launcher::new(Box::new(data), persistent, Default::default()).into(),
+            Ok(persistent) => Launcher::new(data, persistent, Default::default()).into(),
             Err(e) => UnrecoverableError {
                 next_state: None,
                 active_overlay: ActiveOverlay::Error(e),
