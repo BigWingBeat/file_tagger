@@ -84,9 +84,9 @@ macro_rules! app_state {
                 }
             }
 
-            pub fn set_data<T: AnyDebug>(&mut self, data: T) {
+            pub fn set_data<T: AnyDebug>(&mut self, data: T) -> Box<dyn AnyDebug> {
                 let data = Box::new(data);
-                self.replace_data(data);
+                self.replace_data(data)
             }
 
             pub fn replace_data(&mut self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
@@ -101,13 +101,14 @@ macro_rules! app_state {
             where
                 F: FnOnce(&Self, &Self, Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
             {
-                let (next, data) = match self {
-                    // This `inner` will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
-                    $( $name::$variant(inner) => (inner.next_state.take(), std::mem::replace(&mut inner.data, Box::new(()))) ),*
+                let next = match self {
+                    $($name::$variant(inner) => inner.next_state.take()),*
                 };
 
                 if let Some(next) = next {
                     let mut next = next.into();
+                    // This variant will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
+                    let data = self.set_data(());
                     let data = map_data(self, &next, data);
                     next.replace_data(data);
                     *self = next;
