@@ -216,8 +216,8 @@ pub fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     // `update_to_next` must be called before the view is constructed to avoid state desync
     // If the state variant changes in-between then and `teardown`, we will hit the above `unreachable!`s
     state.update_to_next(map_data);
-    let view = state.view();
 
+    let view = state.view();
     let overlay = match state.active_overlay() {
         ActiveOverlay::None => None,
         ActiveOverlay::Error(report) => Some(
@@ -234,9 +234,4 @@ pub fn app_logic(state: &mut AppState) -> impl WidgetView<AppState> + use<> {
     };
 
     zstack((view, overlay))
-    // if let Some(overlay) = overlay {
-    //     Either::A(zstack((view, overlay)))
-    // } else {
-    //     Either::B(view)
-    // }
 }
