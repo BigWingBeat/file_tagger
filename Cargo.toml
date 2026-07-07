@@ -8,6 +8,7 @@ edition = "2024"
 version = "0.1.0"
 
 [workspace.dependencies]
+anymore = "1.0"
 dirs = "6.0"
 fjall = { version = "3.1" }
 miette = { version = "7.6", features = ["fancy-no-syscall"] }

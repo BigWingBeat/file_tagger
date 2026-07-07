@@ -6,6 +6,7 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+anymore.workspace = true
 dirs.workspace = true
 fjall = { workspace = true, optional = true }
 miette.workspace = true

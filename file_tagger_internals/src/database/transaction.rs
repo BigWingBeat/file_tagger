@@ -27,6 +27,7 @@ enum TransReaction {
 
 /// Talks to the transaction thread
 /// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
+#[derive(Debug)]
 pub struct TransactionApi {
     sender: SyncSender<TransAction>,
     receiver: Receiver<TransReaction>,

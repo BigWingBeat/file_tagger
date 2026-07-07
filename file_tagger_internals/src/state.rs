@@ -1,5 +1,6 @@
-use std::{any::Any, collections::BTreeSet, path::PathBuf};
+use std::{collections::BTreeSet, path::PathBuf};
 
+use anymore::AnyDebug;
 use miette::{IntoDiagnostic, Report};
 
 use crate::{AppData, DatabaseState, Entry, Tag};
@@ -12,12 +13,12 @@ macro_rules! app_state {
             pub struct $variant<Next = $name<()>> {
                 next_state: Option<Next>,
                 pub active_overlay: ActiveOverlay,
-                pub data: Box<dyn Any>,
+                pub data: Box<dyn AnyDebug>,
                 $($v $field: $t),*
             }
 
             impl<Next> $variant<Next> {
-                pub fn new<T: Any>(data: T, $($field: $t),*) -> Self {
+                pub fn new<T: AnyDebug>(data: T, $($field: $t),*) -> Self {
                     let data = Box::new(data);
                     Self { next_state: None, active_overlay: ActiveOverlay::None, data, $($field),* }
                 }
@@ -71,24 +72,24 @@ macro_rules! app_state {
                 }
             }
 
-            pub fn data(&self) -> &dyn Any {
+            pub fn data(&self) -> &dyn AnyDebug {
                 match self {
                     $( $name::$variant(inner) => &*inner.data ),*
                 }
             }
 
-            pub fn data_mut(&mut self) -> &mut dyn Any {
+            pub fn data_mut(&mut self) -> &mut dyn AnyDebug {
                 match self {
                     $( $name::$variant(inner) => &mut *inner.data ),*
                 }
             }
 
-            pub fn set_data<T: Any>(&mut self, data: T) {
+            pub fn set_data<T: AnyDebug>(&mut self, data: T) {
                 let data = Box::new(data);
                 self.replace_data(data);
             }
 
-            pub fn replace_data(&mut self, data: Box<dyn Any>) -> Box<dyn Any> {
+            pub fn replace_data(&mut self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
                 match self {
                     $( $name::$variant(inner) => std::mem::replace(&mut inner.data, data) ),*
                 }
@@ -98,7 +99,7 @@ macro_rules! app_state {
         impl $name {
             pub fn update_to_next<F>(&mut self, map_data: F)
             where
-                F: FnOnce(&Self, &Self, Box<dyn Any>) -> Box<dyn Any>
+                F: FnOnce(&Self, &Self, Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
             {
                 let (next, data) = match self {
                     // This `inner` will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
@@ -275,7 +276,7 @@ macro_rules! set_err {
 }
 
 impl ActiveView {
-    pub fn new<T: Any>(data: T) -> Self {
+    pub fn new<T: AnyDebug>(data: T) -> Self {
         match AppData::open() {
             Ok(persistent) => Launcher::new(Box::new(data), persistent, Default::default()).into(),
             Err(e) => UnrecoverableError {

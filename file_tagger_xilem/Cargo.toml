@@ -7,6 +7,7 @@ version.workspace = true
 
 [dependencies]
 file_tagger_internals = { path = "../file_tagger_internals" }
+anymore.workspace = true
 miette.workspace = true
 rfd.workspace = true
 usvg.workspace = true

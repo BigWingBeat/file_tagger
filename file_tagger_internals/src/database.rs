@@ -160,6 +160,7 @@ where
 }
 
 /// Typed wrapper around an untyped transaction
+#[derive(Debug)]
 pub struct TransactionApi(UntypedTransactionApi);
 
 impl TransactionApi {

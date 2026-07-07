@@ -1,9 +1,9 @@
-use std::any::Any;
-
 use file_tagger_internals::{
     ActiveOverlay, ActiveView, Edit, Launcher, SearchMenu, SearchResults, TransactionApi,
     UnrecoverableError,
 };
+
+use anymore::AnyDebug;
 use xilem::{
     AnyWidgetView, WidgetView,
     core::lens,
@@ -18,11 +18,13 @@ use crate::{
 };
 
 /// Gets put in the dyn trait box in the active view type
+#[derive(Debug)]
 pub struct NoTransactionData {
     pub assets: Assets,
 }
 
 /// Gets put in the dyn trait box in the active view type
+#[derive(Debug)]
 pub struct TransactionData {
     pub assets: Assets,
     pub active_transaction: TransactionApi,
@@ -37,7 +39,7 @@ impl From<TransactionData> for NoTransactionData {
 }
 
 pub trait AppData {
-    type Data: 'static;
+    type Data: AnyDebug + 'static;
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
 }
@@ -69,7 +71,7 @@ impl_app_data!(SearchResults, NoTransactionData);
 impl_app_data!(Edit, TransactionData);
 
 trait MapAppData {
-    fn map_data(self, data: Box<dyn Any>) -> Box<dyn Any>;
+    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug>;
 }
 
 impl<From, To> MapAppData for (&From, &To)
@@ -78,7 +80,7 @@ where
     To: AppData,
     From::Data: Into<To::Data>,
 {
-    fn map_data(self, data: Box<dyn Any>) -> Box<dyn Any> {
+    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
         let data = data
             .downcast::<From::Data>()
             .expect("Type of dynamic data changed unexpectedly");
@@ -89,7 +91,7 @@ where
 
 // Manual impl for the two special cases, we would need negative trait bounds (i.e. `where From: !StateTransition<Next = To>`) to generalize these
 impl MapAppData for (&SearchMenu, &Edit) {
-    fn map_data(self, data: Box<dyn Any>) -> Box<dyn Any> {
+    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
         let data = data
             .downcast::<NoTransactionData>()
             .expect("Type of dynamic data changed unexpectedly");
@@ -102,7 +104,7 @@ impl MapAppData for (&SearchMenu, &Edit) {
 }
 
 impl MapAppData for (&SearchResults, &Edit) {
-    fn map_data(self, data: Box<dyn Any>) -> Box<dyn Any> {
+    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
         let data = data
             .downcast::<NoTransactionData>()
             .expect("Type of dynamic data changed unexpectedly");
@@ -123,7 +125,7 @@ macro_rules! generate_map_data_fn {
         generate_map_data_fn!(@1 [$(($variant1, $variant2)),*] | $unreachable | $);
     };
     (@1 [$(($variant1:ident, ($($variant2:ident),*))),*] | ($(($from:ident, $to:ident)),*) | $d:tt) => {
-        fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn Any>) -> Box<dyn Any> {
+        fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
             macro_rules! generated_macro_to_match_unreachable_transitions {
                 $(($d from_inner:ident $d to_inner:ident $from $to) => { unreachable!() };)*
                 ($d from_inner:ident $d to_inner:ident $d from:ident $d to:ident) => { ($from_inner, $to_inner).map_data(data) };

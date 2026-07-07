@@ -7,7 +7,7 @@ const _LICENSE_TABLER_ICONS: &str = include_str!("../assets/license-tabler-icons
 
 const TAG_SVG: &str = include_str!("../assets/tag.svg");
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Assets {
     pub tag: Arc<Tree>,
 }
