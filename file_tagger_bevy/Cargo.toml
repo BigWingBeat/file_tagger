@@ -1,0 +1,19 @@
+[package]
+name = "file_tagger_bevy"
+description = "Frontend for file tagger built with Bevy UI"
+authors.workspace = true
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+file_tagger_internals = { path = "../file_tagger_internals" }
+anymore.workspace = true
+bevy.workspace = true
+miette.workspace = true
+rfd.workspace = true
+usvg.workspace = true
+
+[features]
+default = ["backend_fjall"]
+backend_fjall = ["file_tagger_internals/backend_fjall"]
+backend_sled = ["file_tagger_internals/backend_sled"]
