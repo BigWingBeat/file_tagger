@@ -1,10 +1,174 @@
-use bevy::prelude::*;
-use file_tagger_internals::Launcher;
+use std::ops::DerefMut;
+
+use bevy::{
+    feathers::{containers::flex_spacer, controls::FeathersButton},
+    prelude::*,
+};
+use file_tagger_internals::{Launcher, LauncherState};
 
 use crate::state::LensState;
 
 use super::centered_box;
 
-pub fn launcher_view(state: LensState<Launcher>) -> impl Scene + use<> {
-    centered_box(bsn_list![Text("Text1"), Text("Text2")])
+pub fn launcher_view(mut state: LensState<Launcher>) -> impl Scene + use<> {
+    centered_box(bsn_list![launcher(state.deref_mut()), flex_spacer()])
+}
+
+pub fn launcher(state: &mut Launcher) -> impl Scene + use<> {
+    bsn! {
+        Node
+        Children [
+            (
+                recent_list_portal(state)
+                // Node { flex_grow: 0.5 }
+            ),
+            (
+                open_create_buttons(state)
+                // Node { flex_grow: 0.5 }
+            ),
+        ]
+    }
+}
+
+fn recent_list_portal(state: &mut Launcher) -> impl Scene + use<> {
+    bsn! {
+        Node {
+            flex_direction: FlexDirection::Column
+        }
+        Children [
+            (
+                Text("Open Recent")
+                TextFont {
+                    font_size: FontSize::Px(20.0),
+                    weight: FontWeight::BOLD
+                }
+            ),
+            (
+                Node {
+                    overflow: Overflow::scroll_y()
+                }
+                Children [
+                    recent_list(state)
+                ]
+            )
+        ]
+    }
+}
+
+fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
+    bsn! {
+        Node {
+            flex_direction: FlexDirection::Column,
+            width: Val::Percent(1.0),
+            column_gap: px(1.0),
+        }
+        Children [
+            {
+                state
+                .persistent()
+                .recent_folders()
+                .iter()
+                .rev()
+                .map(|folder| {
+                    bsn! {
+                        @FeathersButton {
+                            @caption: bsn! {
+                                Node {
+                                    flex_direction: FlexDirection::Column,
+                                    align_items: AlignItems::Start,
+                                    column_gap: px(0.0),
+                                }
+                                Children [
+                                    (
+                                        Text({folder.name.to_string_lossy()})
+                                        TextFont {
+                                            weight: FontWeight::BOLD
+                                        }
+                                    ),
+                                    Text({folder.path.to_string_lossy()})
+                                ]
+                            }
+                        }
+                        Node {
+                            border: px(0.0)
+                        }
+                    }
+                })
+                .collect::<Vec<_>>()
+            }
+        ]
+    }
+}
+
+fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
+    bsn! {
+        Node {
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::SpaceEvenly,
+        }
+        Children [
+            (
+                Node
+                Children [
+                    (
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::End,
+                            column_gap: px(0.0),
+                            // flex_grow: { 2.0 / 3.0 },
+                        }
+                        Children [
+                            (
+                                Text("Open Folder As Database")
+                                TextFont {
+                                    weight: FontWeight::BOLD
+                                }
+                            ),
+                            Text("Open or create a database in a folder")
+                        ]
+                    ),
+                    (
+                        @FeathersButton {
+                            @caption: bsn!(Text("Open"))
+                        }
+                        Node {
+                            height: Val::Percent(1.0),
+                            // flex_grow: { 1.0 / 3.0 },
+                        }
+                    )
+                ]
+            ),
+            (
+                Node
+                Children [
+                    (
+                        Node {
+                            flex_direction: FlexDirection::Column,
+                            align_items: AlignItems::End,
+                            column_gap: px(0.0),
+                            // flex_grow: { 2.0 / 3.0 },
+                        }
+                        Children [
+                            (
+                                Text("Create New Database")
+                                TextFont {
+                                    weight: FontWeight::BOLD
+                                }
+                            ),
+                            Text("Create a new folder with a new database")
+                        ]
+                    ),
+                    (
+                        @FeathersButton {
+                            @caption: bsn!(Text("Create"))
+                        }
+                        Node {
+                            height: Val::Percent(1.0),
+                            // flex_grow: { 1.0 / 3.0 },
+                        }
+                    )
+                ]
+            ),
+        ]
+    }
 }
