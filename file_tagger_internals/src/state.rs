@@ -97,7 +97,7 @@ macro_rules! app_state {
         }
 
         impl $name {
-            pub fn update_to_next<F>(&mut self, map_data: F)
+            pub fn update_to_next<F>(&mut self, map_data: F) -> bool
             where
                 F: FnOnce(&Self, &Self, Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
             {
@@ -105,13 +105,17 @@ macro_rules! app_state {
                     $($name::$variant(inner) => inner.next_state.take()),*
                 };
 
-                if let Some(next) = next {
-                    let mut next = next.into();
-                    // This variant will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
-                    let data = self.set_data(());
-                    let data = map_data(self, &next, data);
-                    next.replace_data(data);
-                    *self = next;
+                match next {
+                    Some(next) => {
+                        let mut next = next.into();
+                        // This variant will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
+                        let data = self.set_data(());
+                        let data = map_data(self, &next, data);
+                        next.replace_data(data);
+                        *self = next;
+                        true
+                    }
+                    None => false
                 }
             }
         }

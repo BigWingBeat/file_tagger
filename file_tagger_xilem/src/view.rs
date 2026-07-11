@@ -122,7 +122,7 @@ container_view! {
                 .background_color(ZYNC_700)
                 .border(ZYNC_600, 3.px())
                 .corner_radius(6.px())
-                .padding(Padding::all(16.px()))
+                .padding(16.px())
                 .dims(Dimensions::height(Dim::MinContent)),
         )
         .main_axis_alignment(MainAxisAlignment::Center)

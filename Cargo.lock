@@ -2719,6 +2719,7 @@ dependencies = [
 name = "file_tagger_xilem"
 version = "0.1.0"
 dependencies = [
+ "anymore",
  "file_tagger_internals",
  "miette",
  "rfd",

@@ -2,26 +2,18 @@ use bevy::{
     feathers::{FeathersPlugins, dark_theme::create_dark_theme, theme::UiTheme},
     prelude::*,
 };
-use file_tagger_internals::ActiveView;
+
+mod state;
+mod view;
 
 fn main() -> AppExit {
     App::new()
-        .add_plugins((DefaultPlugins, FeathersPlugins))
+        .add_plugins((DefaultPlugins, FeathersPlugins, state::plugin, view::plugin))
         .insert_resource(UiTheme(create_dark_theme()))
-        .insert_non_send(ActiveView::new(()))
-        .add_systems(Startup, scene.spawn())
+        .add_systems(Startup, spawn_camera)
         .run()
 }
 
-fn scene() -> impl SceneList {
-    bsn_list![Camera2d, ui()]
-}
-
-fn ui() -> impl Scene {
-    bsn! {
-        Node {}
-        Children [
-            AccessibleLabel("Text")
-        ]
-    }
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn(Camera2d);
 }
