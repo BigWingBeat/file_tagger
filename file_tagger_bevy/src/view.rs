@@ -1,6 +1,7 @@
 use bevy::{
     color::palettes::tailwind::{ZINC_600, ZINC_700, ZINC_800, ZINC_900},
     prelude::*,
+    text::FontSourceTemplate,
 };
 
 use file_tagger_internals::{Edit, Launcher, SearchMenu, SearchResults, UnrecoverableError};
@@ -102,4 +103,13 @@ fn centered_flex_box(seq: impl SceneList) -> impl Scene {
 
 pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {
     centered_flex_box(bsn_list![Text("Text1"), Text("Text2")])
+}
+
+pub fn label(text: impl Into<String>) -> impl Scene {
+    bsn! {
+        bevy::feathers::display::label(text)
+        TextFont {
+            font: FontSourceTemplate::SystemUi
+        }
+    }
 }

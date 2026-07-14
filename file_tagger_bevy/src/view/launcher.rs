@@ -8,7 +8,7 @@ use file_tagger_internals::{Launcher, LauncherState};
 
 use crate::state::LensState;
 
-use super::centered_box;
+use super::{centered_box, label};
 
 pub fn launcher_view(mut state: LensState<Launcher>) -> impl Scene + use<> {
     centered_box(bsn_list![launcher(state.deref_mut()), flex_spacer()])
@@ -37,9 +37,9 @@ fn recent_list_portal(state: &mut Launcher) -> impl Scene + use<> {
         }
         Children [
             (
-                Text("Open Recent")
+                label("Open Recent")
                 TextFont {
-                    font_size: FontSize::Px(20.0),
+                    // font_size: FontSize::Px(20.0),
                     weight: FontWeight::BOLD
                 }
             ),
@@ -80,12 +80,12 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                                 }
                                 Children [
                                     (
-                                        Text({folder.name.to_string_lossy()})
+                                        label(folder.name.to_string_lossy())
                                         TextFont {
                                             weight: FontWeight::BOLD
                                         }
                                     ),
-                                    Text({folder.path.to_string_lossy()})
+                                    label(folder.path.to_string_lossy())
                                 ]
                             }
                         }
@@ -119,17 +119,17 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                         }
                         Children [
                             (
-                                Text("Open Folder As Database")
+                                label("Open Folder As Database")
                                 TextFont {
                                     weight: FontWeight::BOLD
                                 }
                             ),
-                            Text("Open or create a database in a folder")
+                            label("Open or create a database in a folder")
                         ]
                     ),
                     (
                         @FeathersButton {
-                            @caption: bsn!(Text("Open"))
+                            @caption: bsn!(label("Open"))
                         }
                         Node {
                             height: Val::Percent(1.0),
@@ -150,17 +150,17 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                         }
                         Children [
                             (
-                                Text("Create New Database")
+                                label("Create New Database")
                                 TextFont {
                                     weight: FontWeight::BOLD
                                 }
                             ),
-                            Text("Create a new folder with a new database")
+                            label("Create a new folder with a new database")
                         ]
                     ),
                     (
                         @FeathersButton {
-                            @caption: bsn!(Text("Create"))
+                            @caption: bsn!(label("Create"))
                         }
                         Node {
                             height: Val::Percent(1.0),
