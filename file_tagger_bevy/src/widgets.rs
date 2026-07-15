@@ -1,4 +1,7 @@
-use bevy::{color::palettes::tailwind::ZINC_700, prelude::*, text::FontSourceTemplate};
+use bevy::{
+    color::palettes::tailwind::ZINC_700, feathers::cursor::EntityCursor, prelude::*,
+    text::FontSourceTemplate,
+};
 
 pub fn label(text: impl Into<String>) -> impl Scene {
     bsn! {
@@ -13,7 +16,6 @@ pub fn label(text: impl Into<String>) -> impl Scene {
 pub fn button(children: impl SceneList) -> impl Scene {
     bsn! {
         Node {
-            // height: size::ROW_HEIGHT,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             padding: UiRect::axes(px(16.0), px(6.0)),
@@ -22,9 +24,7 @@ pub fn button(children: impl SceneList) -> impl Scene {
         }
         Button
         BorderColor::all(ZINC_700)
-        // Hovered
-        // CursorIcon::System(bevy::window::SystemCursorIcon::Pointer)
-        // TabIndex(0)
+        EntityCursor::System(bevy::window::SystemCursorIcon::Pointer)
         Children [
             {children}
         ]
