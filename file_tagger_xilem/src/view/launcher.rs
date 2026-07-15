@@ -32,7 +32,6 @@ fn open_create_buttons<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + 
                 prose("Open Folder As Database").weight(FontWeight::BOLD),
                 prose("Open or create a database in a folder"),
             ))
-            .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
             fork(
@@ -63,7 +62,6 @@ fn open_create_buttons<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + 
                 prose("Create New Database").weight(FontWeight::BOLD),
                 prose("Create a new folder with a new database"),
             ))
-            .cross_axis_alignment(CrossAxisAlignment::End)
             .gap(Gap::ZERO)
             .flex(2.0 / 3.0),
             fork(
