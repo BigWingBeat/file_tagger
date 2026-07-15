@@ -1,11 +1,14 @@
 use std::ops::DerefMut;
 
-use bevy::{feathers::controls::FeathersButton, prelude::*};
+use bevy::prelude::*;
 use file_tagger_internals::{Launcher, LauncherState};
 
-use crate::state::LensState;
+use crate::{
+    state::LensState,
+    widgets::{button, label},
+};
 
-use super::{centered_box, label};
+use super::centered_box;
 
 pub fn launcher_view(mut state: LensState<Launcher>) -> impl Scene + use<> {
     centered_box(bsn_list![launcher(state.deref_mut())])
@@ -71,24 +74,23 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                 .rev()
                 .map(|folder| {
                     bsn! {
-                        @FeathersButton {
-                            @caption: bsn! {
+                        button(
+                            bsn! {
                                 Node {
                                     flex_direction: FlexDirection::Column,
                                 }
                                 Children [
                                     (
-                                        label(folder.name.to_string_lossy())
+                                        label(folder.name.to_string_lossy().into_owned())
                                         TextFont {
                                             weight: FontWeight::BOLD
                                         }
                                     ),
-                                    label(folder.path.to_string_lossy())
+                                    label(folder.path.to_string_lossy().into_owned())
                                 ]
                             }
-                        }
+                        )
                         Node {
-                            height: Val::Auto,
                             justify_content: JustifyContent::Start,
                             border: px(0.0)
                         }
@@ -130,9 +132,7 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                         ]
                     ),
                     (
-                        @FeathersButton {
-                            @caption: bsn!(label("Open"))
-                        }
+                        button(bsn!(label("Open")))
                         Node {
                             height: Val::Percent(100.0),
                             flex_grow: { 1.0 / 3.0 },
@@ -160,9 +160,7 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                         ]
                     ),
                     (
-                        @FeathersButton {
-                            @caption: bsn!(label("Create"))
-                        }
+                        button(bsn!(label("Create")))
                         Node {
                             height: Val::Percent(100.0),
                             flex_grow: { 1.0 / 3.0 },

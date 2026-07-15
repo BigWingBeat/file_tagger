@@ -5,6 +5,7 @@ use bevy::{
 
 mod state;
 mod view;
+mod widgets;
 
 fn main() -> AppExit {
     let mut theme = UiTheme(create_dark_theme());

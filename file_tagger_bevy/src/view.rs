@@ -103,12 +103,3 @@ fn centered_flex_box(seq: impl SceneList) -> impl Scene {
 pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {
     centered_flex_box(bsn_list![Text("Text1"), Text("Text2")])
 }
-
-pub fn label(text: impl Into<String>) -> impl Scene {
-    bsn! {
-        bevy::feathers::display::label(text)
-        TextFont {
-            font: FontSourceTemplate::SystemUi
-        }
-    }
-}
