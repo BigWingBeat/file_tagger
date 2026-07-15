@@ -1,9 +1,6 @@
 use std::ops::DerefMut;
 
-use bevy::{
-    feathers::{containers::flex_spacer, controls::FeathersButton},
-    prelude::*,
-};
+use bevy::{feathers::controls::FeathersButton, prelude::*};
 use file_tagger_internals::{Launcher, LauncherState};
 
 use crate::state::LensState;
@@ -11,20 +8,22 @@ use crate::state::LensState;
 use super::{centered_box, label};
 
 pub fn launcher_view(mut state: LensState<Launcher>) -> impl Scene + use<> {
-    centered_box(bsn_list![launcher(state.deref_mut()), flex_spacer()])
+    centered_box(bsn_list![launcher(state.deref_mut())])
 }
 
 pub fn launcher(state: &mut Launcher) -> impl Scene + use<> {
     bsn! {
-        Node
+        Node {
+            column_gap: px(10.0)
+        }
         Children [
             (
                 recent_list_portal(state)
-                // Node { flex_grow: 0.5 }
+                Node { flex_grow: 0.5 }
             ),
             (
                 open_create_buttons(state)
-                // Node { flex_grow: 0.5 }
+                Node { flex_grow: 0.5 }
             ),
         ]
     }
@@ -33,13 +32,14 @@ pub fn launcher(state: &mut Launcher) -> impl Scene + use<> {
 fn recent_list_portal(state: &mut Launcher) -> impl Scene + use<> {
     bsn! {
         Node {
-            flex_direction: FlexDirection::Column
+            flex_direction: FlexDirection::Column,
+            row_gap: px(10.0)
         }
         Children [
             (
                 label("Open Recent")
                 TextFont {
-                    // font_size: FontSize::Px(20.0),
+                    font_size: FontSize::Px(20.0),
                     weight: FontWeight::BOLD
                 }
             ),
@@ -59,8 +59,8 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
     bsn! {
         Node {
             flex_direction: FlexDirection::Column,
-            width: Val::Percent(1.0),
-            column_gap: px(1.0),
+            width: Val::Percent(100.0),
+            row_gap: px(1.0),
         }
         Children [
             {
@@ -75,8 +75,6 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                             @caption: bsn! {
                                 Node {
                                     flex_direction: FlexDirection::Column,
-                                    align_items: AlignItems::Start,
-                                    column_gap: px(0.0),
                                 }
                                 Children [
                                     (
@@ -90,6 +88,8 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                             }
                         }
                         Node {
+                            height: Val::Auto,
+                            justify_content: JustifyContent::Start,
                             border: px(0.0)
                         }
                     }
@@ -105,17 +105,19 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
         Node {
             flex_direction: FlexDirection::Column,
             justify_content: JustifyContent::SpaceEvenly,
+            row_gap: px(10.0)
         }
         Children [
             (
-                Node
+                Node {
+                    column_gap: px(10.0)
+                }
                 Children [
                     (
                         Node {
                             flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::End,
-                            column_gap: px(0.0),
-                            // flex_grow: { 2.0 / 3.0 },
+                            align_items: AlignItems::Start,
+                            flex_grow: { 2.0 / 3.0 },
                         }
                         Children [
                             (
@@ -132,8 +134,8 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                             @caption: bsn!(label("Open"))
                         }
                         Node {
-                            height: Val::Percent(1.0),
-                            // flex_grow: { 1.0 / 3.0 },
+                            height: Val::Percent(100.0),
+                            flex_grow: { 1.0 / 3.0 },
                         }
                     )
                 ]
@@ -144,9 +146,8 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                     (
                         Node {
                             flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::End,
-                            column_gap: px(0.0),
-                            // flex_grow: { 2.0 / 3.0 },
+                            align_items: AlignItems::Start,
+                            flex_grow: { 2.0 / 3.0 },
                         }
                         Children [
                             (
@@ -163,8 +164,8 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                             @caption: bsn!(label("Create"))
                         }
                         Node {
-                            height: Val::Percent(1.0),
-                            // flex_grow: { 1.0 / 3.0 },
+                            height: Val::Percent(100.0),
+                            flex_grow: { 1.0 / 3.0 },
                         }
                     )
                 ]

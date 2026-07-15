@@ -49,7 +49,6 @@ fn centered_box(seq: impl SceneList) -> impl Scene {
             Node {
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::SpaceBetween,
-                align_items: AlignItems::Center,
                 width: px(1000.0),
                 height: px(375.0),
                 padding: px(10.0)
