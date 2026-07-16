@@ -1,6 +1,8 @@
 use bevy::{
-    color::palettes::tailwind::ZINC_700, feathers::cursor::EntityCursor, prelude::*,
-    text::FontSourceTemplate,
+    color::palettes::tailwind::ZINC_700,
+    feathers::cursor::EntityCursor,
+    prelude::*,
+    text::{FontSourceTemplate, LetterSpacing},
 };
 
 pub fn label(text: impl Into<String>) -> impl Scene {
@@ -10,6 +12,8 @@ pub fn label(text: impl Into<String>) -> impl Scene {
             font: FontSourceTemplate::SystemUi,
             font_size: px(14.0),
         }
+        // Bevy has tighter kerning than Xilem, this brings it roughly back in line
+        template_value(LetterSpacing::Px(0.5))
     }
 }
 
