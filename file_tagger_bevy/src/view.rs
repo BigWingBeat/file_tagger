@@ -1,11 +1,22 @@
+use std::ops::Deref;
+
 use bevy::{
-    color::palettes::tailwind::{ZINC_600, ZINC_700, ZINC_800, ZINC_900},
+    color::palettes::{
+        css::RED,
+        tailwind::{ZINC_600, ZINC_700, ZINC_800, ZINC_900},
+    },
     prelude::*,
+    text::FontSourceTemplate,
+    ui_widgets::Activate,
 };
 
-use file_tagger_internals::UnrecoverableError;
+use file_tagger_internals::{ActiveOverlay, ActiveView, UnrecoverableError};
+use miette::Report;
 
-use crate::state::{LensState, State};
+use crate::{
+    state::{LensState, Spinner, State},
+    widgets::{button, label},
+};
 
 mod edit;
 mod launcher;
@@ -36,6 +47,9 @@ pub fn plugin(app: &mut App) {
     add_view_system(app, search_menu_view);
     add_view_system(app, search_results_view);
     add_view_system(app, edit_view);
+
+    add_view_system(app, spinner_overlay);
+    add_view_system(app, error_overlay);
 }
 
 fn centered_box(seq: impl SceneList) -> impl Scene {
@@ -86,22 +100,38 @@ fn centered_flex_box(seq: impl SceneList) -> impl Scene {
     }
 }
 
-// pub fn error_view<State, E, F>(e: &E, callback: F) -> impl WidgetView<State> + use<State, E, F>
-// where
-//     F: Fn(&mut State) + Send + Sync + 'static,
-//     E: Debug + 'static,
-//     State: 'static,
-// {
-//     centered_flex_box((
-//         prose(format!("{e:?}"))
-//             .font(GenericFamily::Monospace)
-//             .weight(FontWeight::BOLD)
-//             .text_size(20.0)
-//             .text_color(RED),
-//         text_button("Oops", callback),
-//     ))
-// }
+/// This state should always have an active error overlay
+pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {}
 
-pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {
-    centered_flex_box(bsn_list![Text("Text1"), Text("Text2")])
+// Overlay views for `ActiveOverlay` states
+
+fn spinner_overlay(state: LensState<Spinner>) -> impl Scene + use<> {
+    bsn!(centered_flex_box(bsn_list![Text("Text1"), Text("Text2")]) ZIndex(1))
+}
+
+fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
+    let is_unrecoverable = matches!(state.state.deref(), ActiveView::UnrecoverableError(_));
+    let e = state.deref();
+
+    bsn!(centered_flex_box(bsn_list![
+        (
+            label(format!("{e:?}"))
+            TextFont {
+                font: FontSourceTemplate::Monospace,
+                font_size: px(20.0),
+                weight: FontWeight::BOLD,
+            }
+            TextColor(RED)
+        ),
+        (
+            button(bsn!(label("Oops")))
+            on(move |_: On<Activate>, mut state: NonSendMut<ActiveView>| {
+                if is_unrecoverable {
+                    std::process::exit(1);
+                } else {
+                    state.set_active_overlay(ActiveOverlay::None);
+                }
+            })
+        ),
+    ]) ZIndex(1))
 }

@@ -5,13 +5,15 @@ use std::{
 
 use bevy::{ecs::system::SystemParam, prelude::*};
 use file_tagger_internals::{
-    ActiveView, Edit, Launcher, SearchMenu, SearchResults, UnrecoverableError,
+    ActiveOverlay, ActiveView, Edit, Launcher, SearchMenu, SearchResults, UnrecoverableError,
 };
+use miette::Report;
 
 pub fn plugin(app: &mut App) {
     app.insert_non_send(ActiveView::new(()))
         .init_state::<AppState>()
-        .add_systems(PostUpdate, update_app_state);
+        .init_state::<OverlayState>()
+        .add_systems(PostUpdate, (update_app_state, update_overlay_state).chain());
 }
 
 pub trait State {
@@ -21,7 +23,7 @@ pub trait State {
 
 #[derive(SystemParam)]
 pub struct LensState<'w, T: 'static> {
-    state: NonSendMut<'w, ActiveView>,
+    pub state: NonSendMut<'w, ActiveView>,
     __: PhantomData<T>,
 }
 
@@ -86,3 +88,61 @@ app_state!(
     SearchResults,
     Edit,
 );
+
+impl Deref for LensState<'_, Report> {
+    type Target = Report;
+
+    fn deref(&self) -> &Self::Target {
+        let ActiveOverlay::Error(report) = self.state.active_overlay() else {
+            unreachable!("State was changed unexpectedly");
+        };
+        report
+    }
+}
+
+impl State for Report {
+    type State = OverlayState;
+    const STATE: Self::State = OverlayState::Error;
+}
+
+#[derive(States, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum OverlayState {
+    None,
+    Error,
+    Spinner,
+}
+
+impl From<&ActiveView> for OverlayState {
+    fn from(state: &ActiveView) -> Self {
+        match state.active_overlay() {
+            ActiveOverlay::None => Self::None,
+            ActiveOverlay::Error(_) => Self::Error,
+            ActiveOverlay::Spinner => Self::Spinner,
+        }
+    }
+}
+
+impl FromWorld for OverlayState {
+    fn from_world(world: &mut World) -> Self {
+        world.non_send::<ActiveView>().into()
+    }
+}
+
+fn update_overlay_state(
+    state: NonSend<ActiveView>,
+    mut next_state: ResMut<NextState<OverlayState>>,
+) {
+    if !state.is_changed() {
+        return;
+    }
+
+    next_state.as_mut().set_if_neq(state.as_ref().into());
+}
+
+/// The spinner overlay has no associated state, so we use this dummy type instead
+pub struct Spinner;
+
+impl State for Spinner {
+    type State = OverlayState;
+    const STATE: Self::State = OverlayState::Spinner;
+}
