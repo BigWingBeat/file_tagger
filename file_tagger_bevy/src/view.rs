@@ -1,12 +1,11 @@
 use bevy::{
     color::palettes::tailwind::{ZINC_600, ZINC_700, ZINC_800, ZINC_900},
     prelude::*,
-    text::FontSourceTemplate,
 };
 
-use file_tagger_internals::{Edit, Launcher, SearchMenu, SearchResults, UnrecoverableError};
+use file_tagger_internals::UnrecoverableError;
 
-use crate::state::{AppState, LensState, State};
+use crate::state::{LensState, State};
 
 mod edit;
 mod launcher;
@@ -18,22 +17,25 @@ use launcher::launcher_view;
 use search_menu::search_menu_view;
 use search_results::search_results_view;
 
+fn add_view_system<S, F, Out, Marker>(app: &mut App, f: F)
+where
+    S: State + 'static,
+    Out: Scene,
+    F: IntoSystem<(), Out, Marker> + for<'a> Fn(LensState<'a, S>) -> Out,
+{
+    app.add_systems(OnEnter(S::STATE), f.pipe(spawn_view::<S, Out>));
+}
+
 fn spawn_view<S: State, T: Scene>(In(view): In<T>, mut commands: Commands) {
     commands.spawn(DespawnOnExit(S::STATE)).apply_scene(view);
 }
 
-macro_rules! add_view_system {
-    ($app:ident, $state:ident, $fn:ident) => {
-        $app.add_systems(OnEnter(AppState::$state), $fn.pipe(spawn_view::<$state, _>));
-    };
-}
-
 pub fn plugin(app: &mut App) {
-    add_view_system!(app, UnrecoverableError, error_view);
-    add_view_system!(app, Launcher, launcher_view);
-    add_view_system!(app, SearchMenu, search_menu_view);
-    add_view_system!(app, SearchResults, search_results_view);
-    add_view_system!(app, Edit, edit_view);
+    add_view_system(app, error_view);
+    add_view_system(app, launcher_view);
+    add_view_system(app, search_menu_view);
+    add_view_system(app, search_results_view);
+    add_view_system(app, edit_view);
 }
 
 fn centered_box(seq: impl SceneList) -> impl Scene {

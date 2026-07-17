@@ -15,7 +15,8 @@ pub fn plugin(app: &mut App) {
 }
 
 pub trait State {
-    const STATE: AppState;
+    type State: States;
+    const STATE: Self::State;
 }
 
 #[derive(SystemParam)]
@@ -46,12 +47,12 @@ macro_rules! app_state {
             }
 
             match *state {
-                $(ActiveView::$variant(_) => (*next_state).set_if_neq(AppState::$variant)),*
+                $(ActiveView::$variant(_) => next_state.as_mut().set_if_neq(AppState::$variant)),*
             }
         }
 
         $(
-            impl State for $variant { const STATE: AppState = AppState::$variant; }
+            impl State for $variant { type State = AppState; const STATE: Self::State = AppState::$variant; }
 
             impl Deref for LensState<'_, $variant> {
                 type Target = $variant;
