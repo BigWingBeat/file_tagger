@@ -125,9 +125,9 @@ fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
         ),
         (
             button(bsn!(label("Oops")))
-            on(move |_: On<Activate>, mut state: NonSendMut<ActiveView>| {
+            on(move |_: On<Activate>, mut state: NonSendMut<ActiveView>, mut exit: MessageWriter<AppExit>| {
                 if is_unrecoverable {
-                    std::process::exit(1);
+                    exit.write(AppExit::from_code(1));
                 } else {
                     state.set_active_overlay(ActiveOverlay::None);
                 }
