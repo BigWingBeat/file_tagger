@@ -3,6 +3,7 @@ use bevy::{
     feathers::cursor::EntityCursor,
     prelude::*,
     text::{FontSourceTemplate, LetterSpacing},
+    ui_widgets::Button,
 };
 
 pub fn label(text: impl Into<String>) -> impl Scene {
