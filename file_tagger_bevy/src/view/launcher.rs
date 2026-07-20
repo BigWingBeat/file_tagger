@@ -1,11 +1,12 @@
 use std::ops::DerefMut;
 
-use bevy::prelude::*;
+use bevy::{prelude::*, ui_widgets::Activate};
 use file_tagger_internals::{Launcher, LauncherState};
+use rfd::FileHandle;
 
 use crate::{
     state::LensState,
-    widgets::{button, label},
+    widgets::{button, label, task},
 };
 
 use super::centered_box;
@@ -72,6 +73,7 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                 .iter()
                 .rev()
                 .map(|folder| {
+                    let path = folder.path.clone();
                     bsn! {
                         button(
                             bsn! {
@@ -85,7 +87,7 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                                             weight: FontWeight::BOLD
                                         }
                                     ),
-                                    label(folder.path.to_string_lossy().into_owned())
+                                    label(path.to_string_lossy().into_owned())
                                 ]
                             }
                         )
@@ -93,6 +95,9 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
                             justify_content: JustifyContent::Start,
                             border: px(0.0)
                         }
+                        on(move |_: On<Activate>, mut state: LensState<Launcher>| {
+                            state.open_database_in_folder(path.clone());
+                        })
                     }
                 })
                 .collect::<Vec<_>>()
@@ -136,6 +141,25 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                             height: Val::Percent(100.0),
                             width: Val::Percent({100.0 / 3.0}),
                         }
+                        on(
+                            |on: On<Activate>, mut commands: Commands, mut state: LensState<Launcher>| {
+                                state.start_open_dialog();
+                                commands.entity(on.entity).apply_scene(task(
+                                    || async move {
+                                        rfd::AsyncFileDialog::new()
+                                            .set_title("Open Database As Folder")
+                                            .pick_folder()
+                                            .await
+                                    },
+                                    |In(result): In<Option<FileHandle>>, mut state: LensState<Launcher>| {
+                                        state.stop_open_dialog();
+                                        if let Some(folder) = result {
+                                            state.open_database_in_folder(folder.into());
+                                        }
+                                    },
+                                ));
+                            },
+                        )
                     )
                 ]
             ),
@@ -166,6 +190,25 @@ fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
                             height: Val::Percent(100.0),
                             width: Val::Percent({100.0 / 3.0}),
                         }
+                        on(
+                            |on: On<Activate>, mut commands: Commands, mut state: LensState<Launcher>| {
+                                state.start_create_dialog();
+                                commands.entity(on.entity).apply_scene(task(
+                                    || async move {
+                                        rfd::AsyncFileDialog::new()
+                                            .set_title("Create New Folder And Database")
+                                            .save_file()
+                                            .await
+                                    },
+                                    |In(result): In<Option<FileHandle>>, mut state: LensState<Launcher>| {
+                                        state.stop_create_dialog();
+                                        if let Some(folder) = result {
+                                            state.create_folder_with_database(folder.into());
+                                        }
+                                    },
+                                ));
+                            },
+                        )
                     )
                 ]
             ),

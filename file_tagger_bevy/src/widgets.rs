@@ -6,6 +6,15 @@ use bevy::{
     ui_widgets::Button,
 };
 
+mod task;
+
+pub use task::{DynTask, Task, TaskApi, TaskTemplate, task};
+
+pub fn plugin(app: &mut App) {
+    app.add_plugins(task::plugin);
+    // app.add_systems(Update, button_system);
+}
+
 pub fn label(text: impl Into<String>) -> impl Scene {
     bsn! {
         Text(text)

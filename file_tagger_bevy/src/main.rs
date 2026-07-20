@@ -6,7 +6,13 @@ mod widgets;
 
 fn main() -> AppExit {
     App::new()
-        .add_plugins((DefaultPlugins, FeathersPlugins, state::plugin, view::plugin))
+        .add_plugins((
+            DefaultPlugins,
+            FeathersPlugins,
+            state::plugin,
+            view::plugin,
+            widgets::plugin,
+        ))
         .add_systems(Startup, spawn_camera)
         .run()
 }
