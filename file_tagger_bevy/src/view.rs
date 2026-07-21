@@ -106,7 +106,7 @@ pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {}
 // Overlay views for `ActiveOverlay` states
 
 fn spinner_overlay(state: LensState<Spinner>) -> impl Scene + use<> {
-    bsn!(centered_flex_box(bsn_list![Text("Text1"), Text("Text2")]) ZIndex(1))
+    bsn!(centered_flex_box(bsn_list![Text("TODO: Insert Spinner Here"), Text("Waiting for dialog...")]) ZIndex(1))
 }
 
 fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
