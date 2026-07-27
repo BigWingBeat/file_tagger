@@ -1,9 +1,9 @@
-use std::marker::PhantomData;
-
 use bevy::{
-    ecs::{system::SystemId, template::TemplateContext},
+    ecs::{
+        system::SystemId,
+        template::{FnTemplate, TemplateContext},
+    },
     prelude::*,
-    scene::{ResolveContext, ResolveSceneError, ResolvedScene},
     tasks::{IoTaskPool, futures::check_ready},
 };
 
@@ -32,94 +32,44 @@ where
     }
 }
 
-#[derive(Component, Deref, DerefMut)]
-pub struct DynTask {
-    task: Box<dyn TaskApi + Send + Sync>,
-}
+/// `Task` is a generic type, so to be able to handle every monomorphization of it in one system, we hide it behind a trait object.
+/// This type can't impl `FromTemplate`, but can still be used in `bsn` via the `task` helper method.
+/// That is because `FromTemplate` requires specifying a single (monomorphized) template type, but we need a generic template type, to
+/// provide the underlying generic `Task` type instance.
+#[derive(Component)]
+pub struct DynTask(Box<dyn TaskApi + Send + Sync>);
 
 fn handle_tasks(mut commands: Commands, tasks: Query<(Entity, &mut DynTask)>) {
     for (entity, mut task) in tasks {
-        if task.handle_if_finished(&mut commands) {
+        if task.0.handle_if_finished(&mut commands) {
             commands.entity(entity).remove::<DynTask>();
         }
     }
 }
 
-pub struct TaskTemplate<T, S, I, M> {
-    task: T,
+/// The aforementioned helper method. Works a lot like Xilem's `task` view fn:
+/// The first parameter is a fn that returns a future,
+/// and the second parameter is a Bevy system that takes the future's output value as an `In<T>` input
+pub fn task<T, F, S, I, M>(
+    task_fn: T,
     system: S,
-    marker: PhantomData<(I, M)>,
-}
-
-impl<T, S, I, M> TaskTemplate<T, S, I, M> {
-    pub fn new(task: T, system: S) -> Self {
-        Self {
-            task,
-            system,
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<T: Clone, S: Clone, I, M> Clone for TaskTemplate<T, S, I, M> {
-    fn clone(&self) -> Self {
-        Self {
-            task: self.task.clone(),
-            system: self.system.clone(),
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<T, F, S, I, M> Template for TaskTemplate<T, S, I, M>
+) -> FnTemplate<impl Fn(&mut TemplateContext<'_, '_>) -> Result<DynTask> + Clone, DynTask>
 where
-    T: Fn() -> F + Clone,
+    T: Fn() -> F + Clone + 'static,
     F: Future<Output = I::Inner<'static>> + Send + 'static,
     S: IntoSystem<I, (), M> + Clone + 'static,
     I: SystemInput<Inner<'static>: Send> + 'static,
 {
-    type Output = DynTask;
+    template(move |context| {
+        let task_pool = IoTaskPool::try_get().ok_or("IoTaskPool must be initialized")?;
+        let task = task_pool.spawn((task_fn)());
 
-    fn build_template(&self, context: &mut TemplateContext) -> Result<Self::Output> {
-        let task_pool = IoTaskPool::try_get().ok_or("IoTaskPool is not initialized yet")?;
-        let task = task_pool.spawn((self.task)());
-
+        // Use `register_system_cached` to avoid a memory leak from duplicating system registrations
+        // when the same task is despawned and respawned (as opposed to `register_system`)
         let system = context
             .entity
-            .world_scope(|world| world.register_system_cached(self.system.clone()));
+            .world_scope(|world| world.register_system_cached(system.clone()));
 
-        Ok(DynTask {
-            task: Box::new(Task { task, system }),
-        })
-    }
-
-    fn clone_template(&self) -> Self {
-        self.clone()
-    }
-}
-
-impl<T, S, I, M> Scene for TaskTemplate<T, S, I, M>
-where
-    Self: Template<Output: Component> + Send + Sync + 'static,
-{
-    fn resolve(
-        self,
-        _context: &mut ResolveContext,
-        scene: &mut ResolvedScene,
-    ) -> Result<(), ResolveSceneError> {
-        scene.push_template(self);
-        Ok(())
-    }
-}
-
-/// These bounds aren't strictly needed, as they are just duplicated from the `Template` impl,
-/// but having them here too results in better error messages when they are unsatisfied
-pub fn task<T, F, S, I, M>(task: T, system: S) -> TaskTemplate<T, S, I, M>
-where
-    T: Fn() -> F + Clone,
-    F: Future<Output = I::Inner<'static>> + Send + 'static,
-    S: IntoSystem<I, (), M> + Clone + 'static,
-    I: SystemInput<Inner<'static>: Send> + 'static,
-{
-    TaskTemplate::new(task, system)
+        Ok(DynTask(Box::new(Task { task, system })))
+    })
 }

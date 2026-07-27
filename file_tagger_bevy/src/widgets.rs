@@ -1,5 +1,5 @@
 use bevy::{
-    color::palettes::tailwind::ZINC_700,
+    color::palettes::{css::RED, tailwind::ZINC_700},
     feathers::cursor::EntityCursor,
     prelude::*,
     text::{FontSourceTemplate, LetterSpacing},
@@ -8,11 +8,11 @@ use bevy::{
 
 mod task;
 
-pub use task::{DynTask, Task, TaskApi, TaskTemplate, task};
+pub use task::{DynTask, Task, TaskApi, task};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(task::plugin);
-    // app.add_systems(Update, button_system);
+    // .add_systems(Update, button_system);
 }
 
 pub fn label(text: impl Into<String>) -> impl Scene {
@@ -42,5 +42,50 @@ pub fn button(children: impl SceneList) -> impl Scene {
         Children [
             {children}
         ]
+    }
+}
+
+fn button_system(
+    // mut input_focus: ResMut<InputFocus>,
+    mut interaction_query: Query<
+        (
+            Entity,
+            &Interaction,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &mut Button,
+            &Children,
+        ),
+        Changed<Interaction>,
+    >,
+) {
+    const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
+    const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
+    const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
+
+    for (entity, interaction, mut color, mut border_color, mut button, children) in
+        &mut interaction_query
+    {
+        match *interaction {
+            Interaction::Pressed => {
+                // input_focus.set(entity, FocusCause::Pressed);
+                *color = PRESSED_BUTTON.into();
+                *border_color = BorderColor::all(RED);
+
+                // The accessibility system's only update the button's state when the `Button` component is marked as changed.
+                button.set_changed();
+            }
+            Interaction::Hovered => {
+                // input_focus.set(entity, FocusCause::Pressed);
+                *color = HOVERED_BUTTON.into();
+                *border_color = BorderColor::all(Color::WHITE);
+                button.set_changed();
+            }
+            Interaction::None => {
+                // input_focus.clear();
+                *color = NORMAL_BUTTON.into();
+                *border_color = BorderColor::all(Color::BLACK);
+            }
+        }
     }
 }
