@@ -15,7 +15,10 @@ pub fn launcher_view(mut state: LensState<Launcher>) -> impl Scene + use<> {
     centered_box(bsn_list![launcher(state.deref_mut())])
 }
 
-pub fn launcher(state: &mut Launcher) -> impl Scene + use<> {
+pub fn launcher<L>(state: &mut L) -> impl Scene + use<L>
+where
+    L: LauncherState,
+{
     bsn! {
         Node {
             column_gap: px(10.0),
@@ -33,7 +36,10 @@ pub fn launcher(state: &mut Launcher) -> impl Scene + use<> {
     }
 }
 
-fn recent_list_portal(state: &mut Launcher) -> impl Scene + use<> {
+fn recent_list_portal<L>(state: &mut L) -> impl Scene + use<L>
+where
+    L: LauncherState,
+{
     bsn! {
         Node {
             flex_direction: FlexDirection::Column,
@@ -59,7 +65,10 @@ fn recent_list_portal(state: &mut Launcher) -> impl Scene + use<> {
     }
 }
 
-fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
+fn recent_list<L>(state: &mut L) -> impl Scene + use<L>
+where
+    L: LauncherState,
+{
     bsn! {
         Node {
             flex_direction: FlexDirection::Column,
@@ -106,7 +115,10 @@ fn recent_list(state: &mut Launcher) -> impl Scene + use<> {
     }
 }
 
-fn open_create_buttons(state: &mut Launcher) -> impl Scene + use<> {
+fn open_create_buttons<L>(state: &mut L) -> impl Scene + use<L>
+where
+    L: LauncherState,
+{
     bsn! {
         Node {
             flex_direction: FlexDirection::Column,
