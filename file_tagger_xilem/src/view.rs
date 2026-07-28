@@ -7,7 +7,7 @@ use xilem::{
         layout::{AsUnit, Dim},
         parley::GenericFamily,
         properties::Dimensions,
-        theme::{ZYNC_600, ZYNC_700, ZYNC_800, ZYNC_900},
+        theme::{TEXT_BACKGROUND_COLOR, ZYNC_600, ZYNC_700, ZYNC_800, ZYNC_900},
     },
     palette::css::{RED, TRANSPARENT},
     style::{Padding, Style},
@@ -106,6 +106,8 @@ where
     })
     // Border and corner radius the same as the text input
     .border(ZYNC_600, 1.px())
+    // background colour is too
+    .background_color(TEXT_BACKGROUND_COLOR)
     .corner_radius(4.px())
     .dims(dims)
 }
