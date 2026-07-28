@@ -1,19 +1,16 @@
 use std::ops::DerefMut;
 
 use bevy::{
-    feathers::{
-        containers::flex_spacer,
-        controls::{FeathersTextInput, FeathersTextInputContainer},
-    },
+    feathers::{containers::flex_spacer, cursor::EntityCursor},
     prelude::*,
-    ui_widgets::Activate,
+    ui_widgets::{Activate, Button},
 };
 use file_tagger_internals::{DatabaseState, SearchMenu, SearchState};
 use rfd::FileHandle;
 
 use crate::{
     state::LensState,
-    widgets::{button, label, task},
+    widgets::{button, label, submittable_text_input, task},
 };
 
 use super::centered_box;
@@ -37,10 +34,6 @@ pub fn active_folder_name(state: &DatabaseState) -> impl Scene + use<> {
             weight: FontWeight::BOLD
         }
     }
-    // prose(state.active_folder().name.to_string_lossy())
-    //     .weight(FontWeight::BOLD)
-    //     .text_size(20.0)
-    //     .dims(Dimensions::width(Dim::Stretch))
 }
 
 pub fn search_bar<S>(state: &mut S) -> impl Scene + use<S>
@@ -48,29 +41,23 @@ where
     S: SearchState,
     for<'a> LensState<'a, S>: DerefMut<Target = S>,
 {
-    bsn! {
-        @FeathersTextInputContainer
-        Children [
-            @FeathersTextInput,
-            (
-                button(bsn!(label("🔍")))
-                on(
-                    |on: On<Activate>, mut state: LensState<S>| {
-                        state.deref_mut().search_results();
-                    },
-                )
-            ),
-        ]
-    }
-    // submittable_text_input(
-    //     text_input(state.search_bar().clone(), |state: &mut S, text| {
-    //         *state.search_bar() = text
-    //     })
-    //     .on_enter(|state: &mut S, _| state.search_results())
-    //     .placeholder("Search database by tag"),
-    //     text_button("🔍", |state: &mut S| state.search_results()),
-    //     Dimensions::AUTO,
-    // )
+    submittable_text_input(
+        |mut state: LensState<S>| {
+            state.deref_mut().search_results();
+        },
+        bsn! {
+            Node {
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                padding: UiRect::top(px(6)),
+            }
+            Button
+            EntityCursor::System(bevy::window::SystemCursorIcon::Pointer)
+            Children [
+                label("🔍")
+            ]
+        },
+    )
 }
 
 pub fn edit_buttons<S>(state: &mut S) -> impl Scene + use<S>

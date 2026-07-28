@@ -65,9 +65,10 @@ fn centered_box(seq: impl SceneList) -> impl Scene {
             Node {
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::SpaceBetween,
-                width: px(1000.0),
-                height: px(375.0),
-                padding: px(10.0)
+                width: px(1000),
+                height: px(375),
+                padding: px(10),
+                row_gap: px(10),
             }
             BackgroundColor(ZINC_800)
             Children [ {seq} ]
@@ -83,15 +84,14 @@ fn centered_flex_box(seq: impl SceneList) -> impl Scene {
             width: percent(100),
             height: percent(100),
         }
-        // BackgroundColor(ZINC_900)
         Children [
             Node {
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                border: px(3.0),
-                border_radius: px(6.0),
-                padding: px(16.0)
+                border: px(3),
+                border_radius: px(6),
+                padding: px(16)
             }
             BorderColor::from(ZINC_600)
             BackgroundColor(ZINC_700)
@@ -118,7 +118,7 @@ fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
             label(format!("{e:?}"))
             TextFont {
                 font: FontSourceTemplate::Monospace,
-                font_size: px(20.0),
+                font_size: px(20),
                 weight: FontWeight::BOLD,
             }
             TextColor(RED)
