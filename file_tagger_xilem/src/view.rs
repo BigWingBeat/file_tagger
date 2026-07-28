@@ -70,7 +70,6 @@ pub fn active_folder_name(state: &mut DatabaseState) -> impl WidgetView<Database
     prose(state.active_folder().name.to_string_lossy())
         .weight(FontWeight::BOLD)
         .text_size(20.0)
-        .dims(Dimensions::width(Dim::Stretch))
 }
 
 pub fn submittable_text_input<State, F, V>(
