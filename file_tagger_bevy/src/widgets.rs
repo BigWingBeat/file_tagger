@@ -1,7 +1,7 @@
 use bevy::{
     color::palettes::{
         css::RED,
-        tailwind::{ZINC_600, ZINC_700},
+        tailwind::{ZINC_600, ZINC_700, ZINC_800},
     },
     feathers::cursor::EntityCursor,
     input::keyboard::{Key, KeyboardInput},
@@ -47,6 +47,7 @@ pub fn button(children: impl SceneList) -> impl Scene {
             border_radius: px(6.0),
         }
         Button
+        BackgroundColor(ZINC_800)
         BorderColor::all(ZINC_700)
         EntityCursor::System(bevy::window::SystemCursorIcon::Pointer)
         Children [
