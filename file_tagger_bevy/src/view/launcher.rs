@@ -71,7 +71,7 @@ where
 {
     bsn! {
         Node {
-            flex_direction: FlexDirection::Column,
+            flex_direction: FlexDirection::ColumnReverse,
             row_gap: px(1.0),
         }
         Children [
@@ -80,7 +80,6 @@ where
                 .persistent()
                 .recent_folders()
                 .iter()
-                .rev()
                 .map(|folder| {
                     let path = folder.path.clone();
                     bsn! {
