@@ -18,10 +18,10 @@ use super::launcher::launcher;
 
 pub fn search_menu_view(mut state: LensState<SearchMenu>) -> impl Scene + use<> {
     centered_box(bsn_list![
-        active_folder_name(&mut state.database),
-        search_bar(&mut *state),
-        edit_buttons(&mut *state),
-        launcher(&mut *state),
+        active_folder_name(&state.database),
+        search_bar(state.deref_mut()),
+        edit_buttons(state.deref_mut()),
+        launcher(state.deref_mut()),
         flex_spacer(),
     ])
 }
