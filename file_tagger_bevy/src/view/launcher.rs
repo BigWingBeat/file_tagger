@@ -17,6 +17,7 @@ pub fn launcher_view(mut state: LensState<Launcher>) -> impl Scene + use<> {
 pub fn launcher<L>(state: &mut L) -> impl Scene + use<L>
 where
     L: LauncherState,
+    for<'a> LensState<'a, L>: DerefMut<Target = L>,
 {
     bsn! {
         Node {
@@ -38,6 +39,7 @@ where
 fn recent_list_portal<L>(state: &mut L) -> impl Scene + use<L>
 where
     L: LauncherState,
+    for<'a> LensState<'a, L>: DerefMut<Target = L>,
 {
     bsn! {
         Node {
@@ -67,6 +69,7 @@ where
 fn recent_list<L>(state: &mut L) -> impl Scene + use<L>
 where
     L: LauncherState,
+    for<'a> LensState<'a, L>: DerefMut<Target = L>,
 {
     bsn! {
         Node {
@@ -102,7 +105,7 @@ where
                             justify_content: JustifyContent::Start,
                             border: px(0.0)
                         }
-                        on(move |_: On<Activate>, mut state: LensState<Launcher>| {
+                        on(move |_: On<Activate>, mut state: LensState<L>| {
                             state.open_database_in_folder(path.clone());
                         })
                     }
@@ -116,6 +119,7 @@ where
 fn open_create_buttons<L>(state: &mut L) -> impl Scene + use<L>
 where
     L: LauncherState,
+    for<'a> LensState<'a, L>: DerefMut<Target = L>,
 {
     bsn! {
         Node {
@@ -152,11 +156,11 @@ where
                             width: Val::Percent({100.0 / 3.0}),
                         }
                         on(
-                            |on: On<Activate>, mut commands: Commands, mut state: LensState<Launcher>| {
+                            |on: On<Activate>, mut commands: Commands, mut state: LensState<L>| {
                                 state.start_open_dialog();
                                 commands.entity(on.entity).apply_scene(task(
                                     file_tagger_internals::open_folder_as_db,
-                                    |In(result): In<_>, mut state: LensState<Launcher>| {
+                                    |In(result): In<_>, mut state: LensState<L>| {
                                         state.handle_open_dialog(result);
                                     },
                                 ));
@@ -193,11 +197,11 @@ where
                             width: Val::Percent({100.0 / 3.0}),
                         }
                         on(
-                            |on: On<Activate>, mut commands: Commands, mut state: LensState<Launcher>| {
+                            |on: On<Activate>, mut commands: Commands, mut state: LensState<L>| {
                                 state.start_create_dialog();
                                 commands.entity(on.entity).apply_scene(task(
                                     file_tagger_internals::create_folder_and_db,
-                                    |In(result): In<_>, mut state: LensState<Launcher>| {
+                                    |In(result): In<_>, mut state: LensState<L>| {
                                         state.handle_create_dialog(result);
                                     },
                                 ));
