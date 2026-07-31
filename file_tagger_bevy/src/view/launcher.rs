@@ -2,7 +2,6 @@ use std::ops::DerefMut;
 
 use bevy::{prelude::*, ui_widgets::Activate};
 use file_tagger_internals::{Launcher, LauncherState};
-use rfd::FileHandle;
 
 use crate::{
     state::LensState,
@@ -156,17 +155,9 @@ where
                             |on: On<Activate>, mut commands: Commands, mut state: LensState<Launcher>| {
                                 state.start_open_dialog();
                                 commands.entity(on.entity).apply_scene(task(
-                                    || async move {
-                                        rfd::AsyncFileDialog::new()
-                                            .set_title("Open Database As Folder")
-                                            .pick_folder()
-                                            .await
-                                    },
-                                    |In(result): In<Option<FileHandle>>, mut state: LensState<Launcher>| {
-                                        state.stop_open_dialog();
-                                        if let Some(folder) = result {
-                                            state.open_database_in_folder(folder.into());
-                                        }
+                                    file_tagger_internals::open_folder_as_db,
+                                    |In(result): In<_>, mut state: LensState<Launcher>| {
+                                        state.handle_open_dialog(result);
                                     },
                                 ));
                             },
@@ -205,17 +196,9 @@ where
                             |on: On<Activate>, mut commands: Commands, mut state: LensState<Launcher>| {
                                 state.start_create_dialog();
                                 commands.entity(on.entity).apply_scene(task(
-                                    || async move {
-                                        rfd::AsyncFileDialog::new()
-                                            .set_title("Create New Folder And Database")
-                                            .save_file()
-                                            .await
-                                    },
-                                    |In(result): In<Option<FileHandle>>, mut state: LensState<Launcher>| {
-                                        state.stop_create_dialog();
-                                        if let Some(folder) = result {
-                                            state.create_folder_with_database(folder.into());
-                                        }
+                                    file_tagger_internals::create_folder_and_db,
+                                    |In(result): In<_>, mut state: LensState<Launcher>| {
+                                        state.handle_create_dialog(result);
                                     },
                                 ));
                             },

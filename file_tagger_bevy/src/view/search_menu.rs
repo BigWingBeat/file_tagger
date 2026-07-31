@@ -6,7 +6,6 @@ use bevy::{
     ui_widgets::{Activate, Button},
 };
 use file_tagger_internals::{DatabaseState, SearchMenu, SearchState};
-use rfd::FileHandle;
 
 use crate::{
     state::LensState,
@@ -84,19 +83,9 @@ where
                     |on: On<Activate>, mut commands: Commands, mut state: LensState<S>| {
                         state.start_import_dialog();
                         commands.entity(on.entity).apply_scene(task(
-                            || async move {
-                                rfd::AsyncFileDialog::new()
-                                    .set_title("Select Files to Import")
-                                    .pick_files()
-                                    .await
-                            },
-                            |In(result): In<Option<Vec<FileHandle>>>, mut state: LensState<S>| {
-                                state.stop_import_dialog();
-                                if let Some(files) = result
-                                    && !files.is_empty()
-                                {
-                                    state.import_files(&files.iter().map(Into::into).collect::<Vec<_>>())
-                                }
+                            file_tagger_internals::import_files,
+                            |In(result): In<_>, mut state: LensState<S>| {
+                                state.handle_import_dialog(result);
                             },
                         ));
                     },

@@ -1,5 +1,6 @@
 mod app_data;
 mod database;
+mod files;
 mod state;
 mod tags_db;
 
@@ -10,6 +11,7 @@ pub use crate::{
         Transaction, TransactionApi, TransactionImpl, TransactionResult, UntypedTable,
         UntypedTransactionApi, initialize_transaction,
     },
+    files::{create_folder_and_db, import_files, open_folder_as_db},
     state::{
         ActiveOverlay, ActiveView, Edit, EditEntry, Launcher, LauncherState, SearchMenu,
         SearchResults, SearchState, UnrecoverableError,

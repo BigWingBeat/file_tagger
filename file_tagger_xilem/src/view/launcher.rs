@@ -42,17 +42,11 @@ fn open_create_buttons<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + 
                 .flex(1.0 / 3.0),
                 state.open_dialog_active().then_some(task(
                     |proxy, _| async move {
-                        let result = rfd::AsyncFileDialog::new()
-                            .set_title("Open Database As Folder")
-                            .pick_folder()
-                            .await;
+                        let result = file_tagger_internals::open_folder_as_db().await;
                         proxy.message(result);
                     },
                     |state: &mut L, result| {
-                        state.stop_open_dialog();
-                        if let Some(folder) = result {
-                            state.open_database_in_folder(folder.into());
-                        }
+                        state.handle_open_dialog(result);
                     },
                 )),
             ),
@@ -72,17 +66,11 @@ fn open_create_buttons<L: LauncherState>(state: &mut L) -> impl WidgetView<L> + 
                 .flex(1.0 / 3.0),
                 state.create_dialog_active().then_some(task(
                     |proxy, _| async move {
-                        let result = rfd::AsyncFileDialog::new()
-                            .set_title("Create New Folder And Database")
-                            .save_file()
-                            .await;
+                        let result = file_tagger_internals::create_folder_and_db().await;
                         proxy.message(result);
                     },
                     |state: &mut L, result| {
-                        state.stop_create_dialog();
-                        if let Some(folder) = result {
-                            state.create_folder_with_database(folder.into());
-                        }
+                        state.handle_create_dialog(result);
                     },
                 )),
             ),

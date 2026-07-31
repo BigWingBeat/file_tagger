@@ -2697,7 +2697,6 @@ dependencies = [
  "bevy",
  "file_tagger_internals",
  "miette",
- "rfd",
  "usvg",
 ]
 
@@ -2709,6 +2708,7 @@ dependencies = [
  "dirs",
  "fjall",
  "miette",
+ "rfd",
  "scru64",
  "sled",
  "smallvec",
@@ -2722,7 +2722,6 @@ dependencies = [
  "anymore",
  "file_tagger_internals",
  "miette",
- "rfd",
  "usvg",
  "xilem",
 ]

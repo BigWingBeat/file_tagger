@@ -42,19 +42,11 @@ pub fn edit_buttons<S: SearchState>(state: &mut S) -> impl WidgetView<S> + use<S
             }),
             state.import_dialog_active().then_some(task(
                 |proxy, _| async move {
-                    let result = rfd::AsyncFileDialog::new()
-                        .set_title("Select Files to Import")
-                        .pick_files()
-                        .await;
+                    let result = file_tagger_internals::import_files().await;
                     proxy.message(result);
                 },
                 |state: &mut S, result| {
-                    state.stop_import_dialog();
-                    if let Some(files) = result
-                        && !files.is_empty()
-                    {
-                        state.import_files(&files.iter().map(Into::into).collect::<Vec<_>>())
-                    }
+                    state.handle_import_dialog(result);
                 },
             )),
         ),

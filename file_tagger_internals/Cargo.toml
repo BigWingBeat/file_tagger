@@ -10,6 +10,7 @@ anymore.workspace = true
 dirs.workspace = true
 fjall = { workspace = true, optional = true }
 miette.workspace = true
+rfd.workspace = true
 scru64.workspace = true
 sled = { workspace = true, optional = true }
 smallvec.workspace = true

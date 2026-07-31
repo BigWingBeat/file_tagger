@@ -2,6 +2,7 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 use anymore::AnyDebug;
 use miette::{IntoDiagnostic, Report};
+use rfd::FileHandle;
 
 use crate::{AppData, DatabaseState, Entry, Tag};
 
@@ -316,11 +317,11 @@ pub trait LauncherState: 'static {
 
     fn start_open_dialog(&mut self);
     fn open_dialog_active(&self) -> bool;
-    fn stop_open_dialog(&mut self);
+    fn handle_open_dialog(&mut self, result: Option<FileHandle>);
 
     fn start_create_dialog(&mut self);
     fn create_dialog_active(&self) -> bool;
-    fn stop_create_dialog(&mut self);
+    fn handle_create_dialog(&mut self, result: Option<FileHandle>);
 
     fn open_database_in_folder(&mut self, folder: PathBuf);
     fn create_folder_with_database(&mut self, folder: PathBuf);
@@ -351,9 +352,12 @@ impl LauncherState for Launcher {
         self.dialog.open_dialog_active
     }
 
-    fn stop_open_dialog(&mut self) {
+    fn handle_open_dialog(&mut self, result: Option<FileHandle>) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.open_dialog_active = false;
+        if let Some(folder) = result {
+            self.open_database_in_folder(folder.into());
+        }
     }
 
     fn start_create_dialog(&mut self) {
@@ -365,9 +369,12 @@ impl LauncherState for Launcher {
         self.dialog.create_dialog_active
     }
 
-    fn stop_create_dialog(&mut self) {
+    fn handle_create_dialog(&mut self, result: Option<FileHandle>) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.create_dialog_active = false;
+        if let Some(folder) = result {
+            self.create_folder_with_database(folder.into());
+        }
     }
 
     /// The user picks a folder, and a database is created or opened in that folder.
@@ -413,9 +420,12 @@ impl LauncherState for SearchMenu {
         self.dialog.open_dialog_active
     }
 
-    fn stop_open_dialog(&mut self) {
+    fn handle_open_dialog(&mut self, result: Option<FileHandle>) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.open_dialog_active = false;
+        if let Some(folder) = result {
+            self.open_database_in_folder(folder.into());
+        }
     }
 
     fn start_create_dialog(&mut self) {
@@ -427,9 +437,12 @@ impl LauncherState for SearchMenu {
         self.dialog.create_dialog_active
     }
 
-    fn stop_create_dialog(&mut self) {
+    fn handle_create_dialog(&mut self, result: Option<FileHandle>) {
         self.active_overlay = ActiveOverlay::None;
         self.dialog.create_dialog_active = false;
+        if let Some(folder) = result {
+            self.create_folder_with_database(folder.into());
+        }
     }
 
     /// The user picks a folder, and a database is created or opened in that folder
@@ -451,7 +464,7 @@ pub trait SearchState: 'static {
 
     fn start_import_dialog(&mut self);
     fn import_dialog_active(&self) -> bool;
-    fn stop_import_dialog(&mut self);
+    fn handle_import_dialog(&mut self, result: Option<Vec<FileHandle>>);
 
     fn search_results(&mut self);
     fn edit_entries(&mut self);
@@ -472,9 +485,14 @@ impl SearchState for SearchMenu {
         self.search.import_dialog_active
     }
 
-    fn stop_import_dialog(&mut self) {
+    fn handle_import_dialog(&mut self, result: Option<Vec<FileHandle>>) {
         self.active_overlay = ActiveOverlay::None;
         self.search.import_dialog_active = false;
+        if let Some(files) = result
+            && !files.is_empty()
+        {
+            self.import_files(&files.iter().map(Into::into).collect::<Vec<_>>())
+        }
     }
 
     /// Queues the [`SearchResults`] state.
@@ -514,9 +532,14 @@ impl SearchState for SearchResults {
         self.search.import_dialog_active
     }
 
-    fn stop_import_dialog(&mut self) {
+    fn handle_import_dialog(&mut self, result: Option<Vec<FileHandle>>) {
         self.active_overlay = ActiveOverlay::None;
         self.search.import_dialog_active = false;
+        if let Some(files) = result
+            && !files.is_empty()
+        {
+            self.import_files(&files.iter().map(Into::into).collect::<Vec<_>>())
+        }
     }
 
     /// Queues the [`SearchResults`] state.
