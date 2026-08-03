@@ -128,7 +128,7 @@ pub fn initialize_transaction(db: Database) -> TransactionApi {
             // Either we explicitly received a `Rollback` action, or the sender was disconnected
             Ok(transaction.rollback())
         });
-        // We eat the results of every non-finalizing action, so `Ok` and `Err` here are always from a `Commit`
+        // The results of all non-finalizing actions get sent over the channel, so `Ok` and `Err` here are always from a `Commit`
         match result {
             TransactionResult::Ok(()) => sender.send(TransReaction::Commit(Ok(()))).unwrap(),
             TransactionResult::Err(e) => sender.send(TransReaction::Commit(Err(e))).unwrap(),
