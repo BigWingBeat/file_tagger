@@ -586,6 +586,7 @@ impl Edit {
     }
 
     pub fn intersection_of_tags_of_selected_entries(&self) -> impl Iterator<Item = &Tag> {
+        // The std `intersection` methods are only implemented for pairs of collections, but we have arbitrarily many
         self.entries
             .iter()
             .filter_map(EditEntry::selected_tags)

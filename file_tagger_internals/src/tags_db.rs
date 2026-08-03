@@ -271,8 +271,14 @@ impl Display for Tag {
 fn init_or_resume_generator<Value: for<'a> database::Value<'a>>(
     table: &Table<Entry, Value>,
 ) -> miette::Result<Scru64Generator> {
+    // Scru64 ids are always 64 bits. This parameter controls how many of those bits are allocated to a custom value we control.
+    // This is useful for distributed systems with multiple nodes using the same ID space, but we are just an offline, local app,
+    // so we don't need this. Instead, we set this to the smallest allowed number of bits (1), which maximizes the number of bits
+    // allocated to the other (actually useful) parts of the ID.
+    const NODE_ID_SIZE: u8 = 1;
+
     // This is infallible, but `unwrap` and similar methods aren't `const`, so we do this instead
-    const DEFAULT_NODE_ID: NodeSpec = match NodeSpec::with_node_id(1, 1) {
+    const DEFAULT_NODE_ID: NodeSpec = match NodeSpec::with_node_id(0, NODE_ID_SIZE) {
         Ok(id) => id,
         Err(_) => unreachable!(),
     };
@@ -280,7 +286,7 @@ fn init_or_resume_generator<Value: for<'a> database::Value<'a>>(
     table.last_kv().map(|kv| {
         Scru64Generator::new(kv.map_or(DEFAULT_NODE_ID, |(latest_id, _)| {
             // This only errors if the second parameter has a bad value, which will never happen because it's a known-good literal
-            NodeSpec::with_node_prev(latest_id.0, 1).unwrap()
+            NodeSpec::with_node_prev(latest_id.0, NODE_ID_SIZE).unwrap()
         }))
     })
 }
