@@ -58,6 +58,7 @@ impl AppData {
                 .iter()
                 .take(MAX_RECENTS)
                 .map(PathBuf::from)
+                .filter(|p| p.exists())
                 .map(PathBuf::into)
                 .collect()
         })?;
