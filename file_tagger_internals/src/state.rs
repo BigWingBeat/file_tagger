@@ -183,7 +183,7 @@ pub trait StateTransition<T> {
 }
 
 macro_rules! impl_state_transition {
-    ($from:ident, $to:ident, parameters: [ $($field:ident: $param:ty),* ], clones: [ $($clone:ident),* ], defaults: [ $($default:ident),* ]) => {
+    ($from:ident -> $to:ident, parameters: [ $($field:ident: $param:ty),* ], clones: [ $($clone:ident),* ], defaults: [ $($default:ident),* ]) => {
         impl<Next, T> StateTransition<$to<T>> for $from<Next> {
             type Parameters = ( $($param,)* );
             type Next = $to<()>;
@@ -202,56 +202,49 @@ macro_rules! impl_state_transition {
 }
 
 impl_state_transition!(
-    Launcher,
-    SearchMenu,
+    Launcher -> SearchMenu,
     parameters: [database: DatabaseState],
     clones: [persistent, dialog],
     defaults: [search]
 );
 
 impl_state_transition!(
-    SearchMenu,
-    SearchMenu,
+    SearchMenu -> SearchMenu,
     parameters: [database: DatabaseState],
     clones: [persistent, dialog],
     defaults: [search]
 );
 
 impl_state_transition!(
-    SearchMenu,
-    SearchResults,
+    SearchMenu -> SearchResults,
     parameters: [],
     clones: [database, persistent, search],
     defaults: [entries]
 );
 
 impl_state_transition!(
-    SearchMenu,
-    Edit,
+    SearchMenu -> Edit,
     parameters: [],
     clones: [database, persistent],
     defaults: [entries, tag_search_bar_state, tag_create_name_state]
 );
 
 impl_state_transition!(
-    Edit,
-    SearchMenu,
+    Edit -> SearchMenu,
     parameters: [],
     clones: [database, persistent],
     defaults: [dialog, search]
 );
 
 impl_state_transition!(
-    SearchResults,
-    SearchResults,
+    SearchResults -> SearchResults,
     parameters: [],
     clones: [database, persistent, search],
     defaults: [entries]
 );
 
 impl_state_transition!(
-    SearchResults,
-    Edit,
+    SearchResults -> Edit,
     parameters: [],
     clones: [database, persistent],
     defaults: [entries, tag_search_bar_state, tag_create_name_state]
