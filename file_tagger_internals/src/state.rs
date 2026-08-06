@@ -4,21 +4,44 @@ use anymore::AnyDebug;
 use miette::{IntoDiagnostic, Report};
 use rfd::FileHandle;
 
-use crate::{AppData, DatabaseState, Entry, Tag};
+use crate::{AppData, DatabaseState, Entry, Tag, tags_db::ActiveTransactionDatabaseState};
+
+/// The state passed to `finalize_previous_state()` will have its dyn data set to `()`, as at that point
+/// the dyn data has already been moved into the new state (the one returned by `next_state()`)
+struct StateTransitionFunctions<From> {
+    next_state: Box<dyn FnOnce(&mut From) -> ActiveView>,
+    finalize_previous_state: Box<dyn FnOnce(ActiveView)>,
+}
+
+impl<From> StateTransitionFunctions<From> {
+    fn new(
+        next_state: impl FnOnce(&mut From) -> ActiveView + 'static,
+        finalize_previous_state: impl FnOnce(ActiveView) + 'static,
+    ) -> Self {
+        Self {
+            next_state: Box::new(next_state),
+            finalize_previous_state: Box::new(finalize_previous_state),
+        }
+    }
+
+    fn transition(self, from: &mut From) -> (ActiveView, Box<dyn FnOnce(ActiveView)>) {
+        ((self.next_state)(from), self.finalize_previous_state)
+    }
+}
 
 /// Generates wrapper types for data inside the enum because dealing with `{}`-style enum variants directly is annoying
 /// (Would enum variants as types makes this nicer?)
 macro_rules! app_state {
 	( $name:ident = $( $(#[$meta:meta])* $variant:ident { $($v:vis $field:ident: $t:ty),* $(,)* } ),* $(,)* ) => {
 	    $(
-            pub struct $variant<Next = $name<()>> {
-                next_state: Option<Next>,
+            pub struct $variant {
+                next_state: Option<StateTransitionFunctions<Self>>,
                 pub active_overlay: ActiveOverlay,
                 pub data: Box<dyn AnyDebug>,
                 $($v $field: $t),*
             }
 
-            impl<Next> $variant<Next> {
+            impl $variant {
                 pub fn new<T: AnyDebug>(data: T, $($field: $t),*) -> Self {
                     let data = Box::new(data);
                     Self { next_state: None, active_overlay: ActiveOverlay::None, data, $($field),* }
@@ -26,41 +49,41 @@ macro_rules! app_state {
             }
 
             impl $variant {
-                pub fn queue_next_state<T>(&mut self, parameters: <Self as StateTransition<T>>::Parameters)
+                pub fn queue_next_state<To, Parameters>(&mut self, parameters: Parameters)
                 where
-                    Self: StateTransition<T>,
-                    <Self as StateTransition<T>>::Next: Into<$name<()>>,
+                    (): StateTransition<Self, To, Parameters>,
                 {
-                    self.next_state = Some(self.to_state(parameters).into());
+                    let transition_fns = <()>::make_transition_fns(parameters);
+                    self.next_state = Some(transition_fns);
                 }
             }
 
-            impl From<$variant<()>> for $variant {
-                fn from(value: $variant<()>) -> Self {
-                    Self { next_state: None, active_overlay: ActiveOverlay::None, data: value.data, $($field: value.$field),* }
-                }
-            }
+            // impl From<$variant<()>> for $variant {
+            //     fn from(value: $variant<()>) -> Self {
+            //         Self { next_state: None, active_overlay: ActiveOverlay::None, data: value.data, $($field: value.$field),* }
+            //     }
+            // }
 
-            impl<Next> From<$variant<Next>> for $name<Next> {
-                fn from(value: $variant<Next>) -> Self {
+            impl From<$variant> for $name {
+                fn from(value: $variant) -> Self {
                     Self::$variant(value)
                 }
             }
         )*
 
-		pub enum $name<Next = $name<()>> {
-			$( $(#[$meta])* $variant ($variant<Next>) ),*
+		pub enum $name {
+			$( $(#[$meta])* $variant ($variant) ),*
 		}
 
-        impl From<$name<()>> for $name {
-            fn from(value: $name<()>) -> Self {
-                match value {
-                    $( $name::$variant(inner) => Self::$variant(inner.into()) ),*
-                }
-            }
-        }
+        // impl From<$name<()>> for $name {
+        //     fn from(value: $name<()>) -> Self {
+        //         match value {
+        //             $( $name::$variant(inner) => Self::$variant(inner.into()) ),*
+        //         }
+        //     }
+        // }
 
-        impl<Next> $name<Next> {
+        impl $name {
             pub fn active_overlay(&self) -> &ActiveOverlay {
                 match &self {
                     $( $name::$variant(inner) => &inner.active_overlay ),*
@@ -86,11 +109,10 @@ macro_rules! app_state {
             }
 
             pub fn set_data<T: AnyDebug>(&mut self, data: T) -> Box<dyn AnyDebug> {
-                let data = Box::new(data);
-                self.replace_data(data)
+                self.set_data_dyn(Box::new(data))
             }
 
-            pub fn replace_data(&mut self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
+            pub fn set_data_dyn(&mut self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
                 match self {
                     $( $name::$variant(inner) => std::mem::replace(&mut inner.data, data) ),*
                 }
@@ -98,26 +120,26 @@ macro_rules! app_state {
         }
 
         impl $name {
+            /// Update self to the queued variant stored in `next_state`.
+            /// The parameters for `map_data` are the current variant, the next variant, and the current dyn data.
+            /// Both variants have their own dyn data fields set to `()` for the scope of `map_data`'s execution.
             pub fn update_to_next<F>(&mut self, map_data: F) -> bool
             where
                 F: FnOnce(&Self, &Self, Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
             {
-                let next = match self {
-                    $($name::$variant(inner) => inner.next_state.take()),*
+                let transition = match self {
+                    $( $name::$variant(inner) => inner.next_state.take().map(|transition| transition.transition(inner)) ),*
                 };
 
-                match next {
-                    Some(next) => {
-                        let mut next = next.into();
-                        // This variant will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
-                        let data = self.set_data(());
-                        let data = map_data(self, &next, data);
-                        next.replace_data(data);
-                        *self = next;
-                        true
-                    }
-                    None => false
-                }
+                transition.is_some_and(|(mut next, finalize)| {
+                    // This variant will be dropped when we assign to `*self` below, so clobbering its `data` here is fine
+                    let old_data = self.set_data(());
+                    let new_data = map_data(self, &next, old_data);
+                    next.set_data_dyn(new_data);
+                    let previous = std::mem::replace(self, next);
+                    (finalize)(previous);
+                    true
+                })
             }
         }
 	};
@@ -169,33 +191,35 @@ app_state! {
     /// Edit tags of entries, and create new entries (tags) to use
     Edit {
         persistent: AppData,
-        pub database: DatabaseState,
+        pub database: ActiveTransactionDatabaseState,
         entries: Vec<EditEntry>,
         pub tag_search_bar_state: String,
         pub tag_create_name_state: String,
     },
 }
 
-pub trait StateTransition<T> {
-    type Parameters;
-    type Next;
-    fn to_state(&self, parameters: Self::Parameters) -> Self::Next;
+pub trait StateTransition<From, To, Parameters> {
+    fn make_transition_fns(parameters: Parameters) -> StateTransitionFunctions<From>;
 }
 
 macro_rules! impl_state_transition {
-    ($from:ident -> $to:ident, parameters: [ $($field:ident: $param:ty),* ], clones: [ $($clone:ident),* ], defaults: [ $($default:ident),* ]) => {
-        impl<Next, T> StateTransition<$to<T>> for $from<Next> {
-            type Parameters = ( $($param,)* );
-            type Next = $to<()>;
-            fn to_state(&self, ( $($field,)* ): ( $($param,)* )) -> Self::Next {
-                $to {
-                    next_state: None,
-                    active_overlay: ActiveOverlay::None,
-                    data: Box::new(()),
-                    $( $field, )*
-                    $( $clone: self.$clone.clone(), )*
-                    $( $default: Default::default(), )*
-                }
+    ($from:ident -> $to:ident, parameters: [ $($field:ident: $param:ty),* ], clones: [ $($clone:ident),* ], defaults: [ $($default:ident),* ], finalize: $($finalize:tt)*) => {
+        impl StateTransition<$from, $to, ( $($param,)* )> for () {
+            fn make_transition_fns(parameters: ( $($param,)* )) -> StateTransitionFunctions<$from> {
+                StateTransitionFunctions::<$from>::new(
+                    |from| {
+                        let ( $($field,)* ) = parameters;
+                        $to {
+                            next_state: None,
+                            active_overlay: ActiveOverlay::None,
+                            data: Box::new(()),
+                            $( $field, )*
+                            $( $clone: from.$clone.clone().into(), )*
+                            $( $default: Default::default(), )*
+                        }.into()
+                    },
+                    $($finalize)*
+                )
             }
         }
     };
@@ -205,49 +229,68 @@ impl_state_transition!(
     Launcher -> SearchMenu,
     parameters: [database: DatabaseState],
     clones: [persistent, dialog],
-    defaults: [search]
+    defaults: [search],
+    finalize: |_| {}
 );
 
 impl_state_transition!(
     SearchMenu -> SearchMenu,
     parameters: [database: DatabaseState],
     clones: [persistent, dialog],
-    defaults: [search]
+    defaults: [search],
+    finalize: |_| {}
 );
 
 impl_state_transition!(
     SearchMenu -> SearchResults,
     parameters: [],
     clones: [database, persistent, search],
-    defaults: [entries]
+    defaults: [entries],
+    finalize: |_| {}
 );
 
 impl_state_transition!(
     SearchMenu -> Edit,
     parameters: [],
     clones: [database, persistent],
-    defaults: [entries, tag_search_bar_state, tag_create_name_state]
+    defaults: [entries, tag_search_bar_state, tag_create_name_state],
+    finalize: |_| {}
 );
+
+pub struct Commit;
 
 impl_state_transition!(
     Edit -> SearchMenu,
-    parameters: [],
+    parameters: [__: Commit],
     clones: [database, persistent],
-    defaults: [dialog, search]
+    defaults: [dialog, search],
+    finalize: |state| { if let ActiveView::Edit(edit) = state { edit.database.commit(); } }
+);
+
+pub struct Rollback;
+
+impl_state_transition!(
+    Edit -> SearchMenu,
+    parameters: [__: Rollback],
+    clones: [database, persistent],
+    defaults: [dialog, search],
+    finalize: |state| { if let ActiveView::Edit(edit) = state { edit.database.rollback(); } }
 );
 
 impl_state_transition!(
     SearchResults -> SearchResults,
     parameters: [],
     clones: [database, persistent, search],
-    defaults: [entries]
+    defaults: [entries],
+    finalize: |_| {}
 );
 
 impl_state_transition!(
     SearchResults -> Edit,
     parameters: [],
     clones: [database, persistent],
-    defaults: [entries, tag_search_bar_state, tag_create_name_state]
+    defaults: [entries, tag_search_bar_state, tag_create_name_state],
+    finalize: |_| {}
 );
 
 #[derive(Default)]
@@ -327,7 +370,7 @@ impl Launcher {
             self.persistent.push_recent_folder(folder).into_diagnostic()
         );
         let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
-        self.queue_next_state::<SearchMenu>((database,));
+        self.queue_next_state::<SearchMenu, _>((database,));
     }
 }
 
@@ -395,7 +438,7 @@ impl SearchMenu {
             self.persistent.push_recent_folder(folder).into_diagnostic()
         );
         let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
-        self.queue_next_state::<SearchMenu>((database,));
+        self.queue_next_state::<SearchMenu, _>((database,));
     }
 }
 
@@ -490,18 +533,18 @@ impl SearchState for SearchMenu {
 
     /// Queues the [`SearchResults`] state.
     fn search_results(&mut self) {
-        self.queue_next_state::<SearchResults>(());
+        self.queue_next_state::<SearchResults, _>(());
     }
 
     /// Queues the [`Edit`] state.
     fn edit_entries(&mut self) {
-        self.queue_next_state::<Edit>(());
+        self.queue_next_state::<Edit, _>(());
     }
 
     /// The user picks one or more files, and the editor is opened with new template entries for those files
     /// Queues the [`Edit`] state.
     fn import_files(&mut self, files: &[PathBuf]) {
-        self.queue_next_state::<Edit>(());
+        self.queue_next_state::<Edit, _>(());
     }
 }
 
@@ -537,25 +580,32 @@ impl SearchState for SearchResults {
 
     /// Queues the [`SearchResults`] state.
     fn search_results(&mut self) {
-        self.queue_next_state::<SearchResults>(());
+        self.queue_next_state::<SearchResults, _>(());
     }
 
     /// Queues the [`Edit`] state.
     fn edit_entries(&mut self) {
-        self.queue_next_state::<Edit>(());
+        self.queue_next_state::<Edit, _>(());
     }
 
     /// The user picks one or more files, and the editor is opened with new template entries for those files
     /// Queues the [`Edit`] state.
     fn import_files(&mut self, files: &[PathBuf]) {
-        self.queue_next_state::<Edit>(());
+        self.queue_next_state::<Edit, _>(());
     }
 }
 
 impl Edit {
+    /// Commits the transaction.
     /// Queues the [`SearchMenu`] state.
-    pub fn search_menu(&mut self) {
-        self.queue_next_state::<SearchMenu>(());
+    pub fn save_changes(&mut self) {
+        self.queue_next_state::<SearchMenu, _>(Commit);
+    }
+
+    /// Rolls back the transaction.
+    /// Queues the [`SearchMenu`] state.
+    pub fn cancel(&mut self) {
+        self.queue_next_state::<SearchMenu, _>(Rollback);
     }
 
     pub fn entries(&self) -> &[EditEntry] {

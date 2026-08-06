@@ -26,10 +26,6 @@ pub struct DatabaseState {
 }
 
 impl DatabaseState {
-    pub fn inner_db_handle(&self) -> &TagsDatabase {
-        &self.database
-    }
-
     pub fn active_folder(&self) -> &RecentFolder {
         &self.folder
     }
@@ -59,6 +55,10 @@ impl DatabaseState {
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     pub fn generate_entry(&mut self) -> Entry {
         self.database.generate_entry()
+    }
+
+    pub fn initialize_transaction(&self) -> TransactionApi {
+        self.database.initialize_transaction()
     }
 
     pub fn tag_entry_by_name(&self, tag: &Tag) -> miette::Result<Option<Entry>> {
@@ -170,6 +170,29 @@ impl TagsDatabase {
 
     pub fn initialize_transaction(&self) -> TransactionApi {
         initialize_transaction(self.database.clone())
+    }
+}
+
+pub struct ActiveTransactionDatabaseState {
+    db: DatabaseState,
+    transaction: TransactionApi,
+}
+
+impl From<DatabaseState> for ActiveTransactionDatabaseState {
+    fn from(db: DatabaseState) -> Self {
+        let transaction = db.initialize_transaction();
+        Self { db, transaction }
+    }
+}
+
+impl ActiveTransactionDatabaseState {
+    pub fn commit(self) -> database::Result<DatabaseState> {
+        self.transaction.commit().map(|_| self.db)
+    }
+
+    pub fn rollback(self) -> DatabaseState {
+        self.transaction.rollback();
+        self.db
     }
 }
 
