@@ -174,7 +174,7 @@ impl TagsDatabase {
 }
 
 pub struct ActiveTransactionDatabaseState {
-    db: DatabaseState,
+    pub db: DatabaseState,
     transaction: TransactionApi,
 }
 
@@ -186,13 +186,12 @@ impl From<DatabaseState> for ActiveTransactionDatabaseState {
 }
 
 impl ActiveTransactionDatabaseState {
-    pub fn commit(self) -> database::Result<DatabaseState> {
-        self.transaction.commit().map(|_| self.db)
+    pub fn commit(self) -> database::Result<()> {
+        self.transaction.commit()
     }
 
-    pub fn rollback(self) -> DatabaseState {
-        self.transaction.rollback();
-        self.db
+    pub fn rollback(self) {
+        self.transaction.rollback()
     }
 }
 
