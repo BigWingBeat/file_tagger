@@ -316,7 +316,7 @@ impl_state_transition!(
     next_state: fn(&mut Edit, Commit) -> SearchMenu = |edit, _| {
         SearchMenu::new(
             edit.persistent.clone(),
-            edit.database.db.clone(),
+            edit.database.clone_db(),
             Default::default(),
             Default::default(),
         )
@@ -330,7 +330,7 @@ impl_state_transition!(
     next_state: fn(&mut Edit, Rollback) -> SearchMenu = |edit, _| {
         SearchMenu::new(
             edit.persistent.clone(),
-            edit.database.db.clone(),
+            edit.database.clone_db(),
             Default::default(),
             Default::default(),
         )

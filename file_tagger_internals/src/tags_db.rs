@@ -174,7 +174,7 @@ impl TagsDatabase {
 }
 
 pub struct ActiveTransactionDatabaseState {
-    pub db: DatabaseState,
+    db: DatabaseState,
     transaction: TransactionApi,
 }
 
@@ -186,6 +186,10 @@ impl From<DatabaseState> for ActiveTransactionDatabaseState {
 }
 
 impl ActiveTransactionDatabaseState {
+    pub fn clone_db(&self) -> DatabaseState {
+        self.db.clone()
+    }
+
     pub fn commit(self) -> database::Result<()> {
         self.transaction.commit()
     }
