@@ -190,8 +190,8 @@ fn tag_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
         .flex(0.2),
         flex_row((
             FlexSpacer::Flex(1.0),
-            text_button("Save Changes", |state: &mut Edit| {}),
-            text_button("Cancel", |state: &mut Edit| state.search_menu()),
+            text_button("Save Changes", |state: &mut Edit| state.save_changes()),
+            text_button("Cancel", |state: &mut Edit| state.cancel()),
         )),
     ))
 }

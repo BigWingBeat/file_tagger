@@ -1,6 +1,5 @@
 use file_tagger_internals::{
-    ActiveOverlay, ActiveView, Edit, Launcher, SearchMenu, SearchResults, TransactionApi,
-    UnrecoverableError,
+    ActiveOverlay, ActiveView, Edit, Launcher, SearchMenu, SearchResults, UnrecoverableError,
 };
 
 use anymore::AnyDebug;
@@ -19,29 +18,26 @@ use crate::{
 
 /// Gets put in the dyn trait box in the active view type
 #[derive(Debug)]
-pub struct NoTransactionData {
+pub struct XilemAppData {
     pub assets: Assets,
-}
-
-/// Gets put in the dyn trait box in the active view type
-#[derive(Debug)]
-pub struct TransactionData {
-    pub assets: Assets,
-    pub active_transaction: TransactionApi,
-}
-
-impl From<TransactionData> for NoTransactionData {
-    fn from(data: TransactionData) -> Self {
-        Self {
-            assets: data.assets,
-        }
-    }
 }
 
 pub trait AppData {
     type Data: AnyDebug + 'static;
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
+
+    fn map_data<To>(&self, _to: &To, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
+    where
+        To: AppData,
+        Self::Data: Into<To::Data>,
+    {
+        let data = data
+            .downcast::<Self::Data>()
+            .expect("Type of dynamic data changed unexpectedly");
+        let data: To::Data = (*data).into();
+        Box::new(data)
+    }
 }
 
 macro_rules! impl_app_data {
@@ -64,57 +60,11 @@ macro_rules! impl_app_data {
     };
 }
 
-impl_app_data!(UnrecoverableError, NoTransactionData);
-impl_app_data!(Launcher, NoTransactionData);
-impl_app_data!(SearchMenu, NoTransactionData);
-impl_app_data!(SearchResults, NoTransactionData);
-impl_app_data!(Edit, TransactionData);
-
-trait MapAppData {
-    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug>;
-}
-
-impl<From, To> MapAppData for (&From, &To)
-where
-    From: AppData,
-    To: AppData,
-    From::Data: Into<To::Data>,
-{
-    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
-        let data = data
-            .downcast::<From::Data>()
-            .expect("Type of dynamic data changed unexpectedly");
-        let data: To::Data = (*data).into();
-        Box::new(data)
-    }
-}
-
-// Manual impl for the two special cases, we would need negative trait bounds (i.e. `where From: !StateTransition<Next = To>`) to generalize these
-impl MapAppData for (&SearchMenu, &Edit) {
-    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
-        let data = data
-            .downcast::<NoTransactionData>()
-            .expect("Type of dynamic data changed unexpectedly");
-        let data = TransactionData {
-            assets: data.assets,
-            active_transaction: self.1.database.inner_db_handle().initialize_transaction(),
-        };
-        Box::new(data)
-    }
-}
-
-impl MapAppData for (&SearchResults, &Edit) {
-    fn map_data(self, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
-        let data = data
-            .downcast::<NoTransactionData>()
-            .expect("Type of dynamic data changed unexpectedly");
-        let data = TransactionData {
-            assets: data.assets,
-            active_transaction: self.1.database.inner_db_handle().initialize_transaction(),
-        };
-        Box::new(data)
-    }
-}
+impl_app_data!(UnrecoverableError, XilemAppData);
+impl_app_data!(Launcher, XilemAppData);
+impl_app_data!(SearchMenu, XilemAppData);
+impl_app_data!(SearchResults, XilemAppData);
+impl_app_data!(Edit, XilemAppData);
 
 // Combinatorics yayy
 macro_rules! generate_map_data_fn {
@@ -128,12 +78,11 @@ macro_rules! generate_map_data_fn {
         fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
             macro_rules! generated_macro_to_match_unreachable_transitions {
                 $(($d from_inner:ident $d to_inner:ident $from $to) => { unreachable!() };)*
-                ($d from_inner:ident $d to_inner:ident $d from:ident $d to:ident) => { ($from_inner, $to_inner).map_data(data) };
+                ($d from_inner:ident $d to_inner:ident $d from:ident $d to:ident) => { $from_inner.map_data($to_inner, data) };
             }
 
-            use ActiveView::*;
             match (from, to) {
-                $($(($variant1(_from), $variant2(_to)) => { generated_macro_to_match_unreachable_transitions!(_from _to $variant1 $variant2) } )*)*
+                $($((ActiveView::$variant1(_from), ActiveView::$variant2(_to)) => { generated_macro_to_match_unreachable_transitions!(_from _to $variant1 $variant2) } )*)*
             }
         }
     }
@@ -147,10 +96,8 @@ generate_map_data_fn!(
         SearchResults,
         Edit,
     ],
-    unreachable: [
-        UnrecoverableError -> Edit,
-        Launcher -> Edit,
-    ],
+    // Formerly used: for if a state has a different dyn data type that means some state transitions have no possible conversion
+    unreachable: [],
 );
 
 pub trait LensView {
@@ -206,7 +153,7 @@ impl LensView for ActiveView {
 pub type AppState = ActiveView;
 
 pub fn init_state() -> AppState {
-    let data = NoTransactionData {
+    let data = XilemAppData {
         assets: Assets::new(),
     };
     AppState::new(data)
