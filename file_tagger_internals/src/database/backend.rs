@@ -73,6 +73,7 @@ enum FinalizeTransactionType {
 /// Dropping the transaction type should default to rollback
 pub trait TransactionImpl: Sized {
     type Table;
+    type Iter;
 
     fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>>;
 
@@ -84,6 +85,8 @@ pub trait TransactionImpl: Sized {
     ) -> Result<()>;
 
     fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()>;
+
+    fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter;
 
     fn commit(self) -> Result<FinalizeTransaction> {
         Ok(FinalizeTransaction(FinalizeTransactionType::Commit))

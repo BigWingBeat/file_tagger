@@ -8,8 +8,8 @@ mod backend;
 mod transaction;
 
 pub use backend::{
-    Buffer, Database, DatabaseImpl, Error, FinalizeTransaction, Result, Table as UntypedTable,
-    Transaction, TransactionImpl, TransactionResult,
+    Buffer, Database, DatabaseImpl, Error, FinalizeTransaction, Iter as UntypedIter, Result,
+    Table as UntypedTable, Transaction, TransactionImpl, TransactionResult,
 };
 use backend::{Builder, BuilderImpl, TableImpl};
 pub use transaction::{
@@ -130,7 +130,7 @@ where
         Self::parse_kv_result(self.table.last_kv())
     }
 
-    pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> backend::Iter {
+    pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> UntypedIter {
         self.table.prefix(prefix)
     }
 
@@ -203,6 +203,18 @@ impl TransactionApi {
         Value: for<'a> self::Value<'a>,
     {
         self.0.remove(&table.table, key.as_bytes().as_ref())
+    }
+
+    pub fn prefix<Key, Value>(
+        &self,
+        table: &Table<Key, Value>,
+        prefix: impl Into<Buffer>,
+    ) -> UntypedIter
+    where
+        Key: for<'a> self::Key<'a>,
+        Value: for<'a> self::Value<'a>,
+    {
+        self.0.prefix(&table.table, prefix)
     }
 
     pub fn commit(self) -> backend::Result<()> {

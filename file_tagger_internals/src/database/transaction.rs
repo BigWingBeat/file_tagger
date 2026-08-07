@@ -4,7 +4,8 @@ use std::{
 };
 
 use super::{
-    Buffer, Database, DatabaseImpl, Result, TransactionImpl, TransactionResult, UntypedTable,
+    Buffer, Database, DatabaseImpl, Result, TransactionImpl, TransactionResult, UntypedIter,
+    UntypedTable,
 };
 
 /// This is the message type passed over a channel to allow the GUI to control the transaction
@@ -12,6 +13,7 @@ enum TransAction {
     Get(UntypedTable, Buffer),
     Insert(UntypedTable, Buffer, Buffer),
     Remove(UntypedTable, Buffer),
+    Prefix(UntypedTable, Buffer),
     Commit,
     Rollback,
 }
@@ -22,6 +24,7 @@ enum TransReaction {
     Get(Result<Option<Buffer>>),
     Insert(Result<()>),
     Remove(Result<()>),
+    Prefix(UntypedIter),
     Commit(Result<()>),
 }
 
@@ -68,6 +71,16 @@ impl TransactionApi {
             unreachable!();
         };
         result
+    }
+
+    pub fn prefix(&self, table: &UntypedTable, prefix: impl Into<Buffer>) -> UntypedIter {
+        self.sender
+            .send(TransAction::Prefix(table.clone(), prefix.into()))
+            .unwrap();
+        let TransReaction::Prefix(iter) = self.receiver.recv().unwrap() else {
+            unreachable!()
+        };
+        iter
     }
 
     pub fn commit(self) -> Result<()> {
@@ -119,6 +132,11 @@ pub fn initialize_transaction(db: Database) -> TransactionApi {
                     TransAction::Remove(table, key) => {
                         sender
                             .send(TransReaction::Remove(transaction.remove(&table, key)))
+                            .unwrap();
+                    }
+                    TransAction::Prefix(table, prefix) => {
+                        sender
+                            .send(TransReaction::Prefix(transaction.prefix(&table, prefix)))
                             .unwrap();
                     }
                     TransAction::Commit => return transaction.commit(),

@@ -190,6 +190,29 @@ impl ActiveTransactionDatabaseState {
         self.db.clone()
     }
 
+    /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
+    pub fn generate_entry(&mut self) -> Entry {
+        self.db.generate_entry()
+    }
+
+    pub fn tag_exists(&self, tag: &Tag) -> miette::Result<bool> {
+        self.transaction
+            .get(&self.db.database.tag_entries, tag)
+            .map(|entry| entry.is_some())
+    }
+
+    pub fn search_tags_names_by_prefix(
+        &self,
+        prefix: impl Into<Buffer>,
+    ) -> impl Iterator<Item = miette::Result<Tag>> {
+        self.transaction
+            .prefix(&self.db.database.tag_entries, prefix)
+            .map(|kv| {
+                kv.into_diagnostic()
+                    .and_then(|(k, v)| (*k).try_into().into_diagnostic())
+            })
+    }
+
     pub fn commit(self) -> database::Result<()> {
         self.transaction.commit()
     }
