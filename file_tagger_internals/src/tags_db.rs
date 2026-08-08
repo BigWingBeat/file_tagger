@@ -164,10 +164,7 @@ impl TagsDatabase {
         &self,
         prefix: impl AsRef<[u8]>,
     ) -> impl Iterator<Item = miette::Result<Tag>> {
-        self.tag_entries.prefix(prefix).map(|kv| {
-            kv.into_diagnostic()
-                .and_then(|(k, v)| (*k).try_into().into_diagnostic())
-        })
+        self.tag_entries.prefix(prefix).map(|kv| kv.map(|(k, _)| k))
     }
 
     pub fn initialize_transaction(&self) -> TransactionApi {
@@ -209,10 +206,7 @@ impl ActiveTransactionDatabaseState {
     ) -> impl Iterator<Item = miette::Result<Tag>> {
         self.transaction
             .prefix(&self.db.database.tag_entries, prefix)
-            .map(|kv| {
-                kv.into_diagnostic()
-                    .and_then(|(k, v)| (*k).try_into().into_diagnostic())
-            })
+            .map(|kv| kv.map(|(k, _)| k))
     }
 
     pub fn commit(self) -> database::Result<()> {

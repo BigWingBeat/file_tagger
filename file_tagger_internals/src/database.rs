@@ -135,8 +135,8 @@ where
     }
 
     /// Returns an iterator over all entries in the table for which the value of the key starts with the given string of bytes.
-    pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> UntypedIter {
-        self.table.prefix(prefix)
+    pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter<Key, Value> {
+        Iter::new(self.table.prefix(prefix))
     }
 
     // These are technically not methods, as they have no `self` parameter,
@@ -164,6 +164,44 @@ where
             Ok(None) => Ok(None),
             Err(e) => Err(e).into_diagnostic(),
         }
+    }
+}
+
+/// Typed wrapper around an untyped iterator
+pub struct Iter<Key, Value> {
+    iter: UntypedIter,
+    marker: PhantomData<(Key, Value)>,
+}
+
+impl<Key, Value> Iter<Key, Value> {
+    // This should not be public as we only want this to be constructed from typed tables with matching KV types
+    fn new(iter: UntypedIter) -> Self {
+        Self {
+            iter,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<Key, Value> Iterator for Iter<Key, Value>
+where
+    Key: for<'a> self::Key<'a>,
+    Value: for<'a> self::Value<'a>,
+{
+    type Item = miette::Result<(Key, Value)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Table::<Key, Value>::parse_kv_result(self.iter.next().transpose()).transpose()
+    }
+}
+
+impl<Key, Value> DoubleEndedIterator for Iter<Key, Value>
+where
+    Key: for<'a> self::Key<'a>,
+    Value: for<'a> self::Value<'a>,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        Table::<Key, Value>::parse_kv_result(self.iter.next_back().transpose()).transpose()
     }
 }
 
@@ -217,12 +255,12 @@ impl TransactionApi {
         &self,
         table: &Table<Key, Value>,
         prefix: impl Into<Buffer>,
-    ) -> UntypedIter
+    ) -> Iter<Key, Value>
     where
         Key: for<'a> self::Key<'a>,
         Value: for<'a> self::Value<'a>,
     {
-        self.0.prefix(&table.table, prefix)
+        Iter::new(self.0.prefix(&table.table, prefix))
     }
 
     pub fn commit(self) -> backend::Result<()> {
