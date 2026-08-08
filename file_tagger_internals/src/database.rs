@@ -96,6 +96,8 @@ impl<Key, Value> Clone for Table<Key, Value> {
 }
 
 impl<Key, Value> Table<Key, Value>
+// This syntax is a bit weird, `self::` here refers to the *module* we're in.
+// Needed because the generics have the same name as the traits we're bounding them on.
 where
     Key: for<'a> self::Key<'a>,
     Value: for<'a> self::Value<'a>,
@@ -122,17 +124,23 @@ where
         self.table.remove(key.as_bytes())
     }
 
+    /// Retrieve the key that is lexicographically first in the table, and the associated value.
     pub fn first_kv(&self) -> miette::Result<Option<(Key, Value)>> {
         Self::parse_kv_result(self.table.first_kv())
     }
 
+    /// Retrieve the key that is lexicographically last in the table, and the associated value.
     pub fn last_kv(&self) -> miette::Result<Option<(Key, Value)>> {
         Self::parse_kv_result(self.table.last_kv())
     }
 
+    /// Returns an iterator over all entries in the table for which the value of the key starts with the given string of bytes.
     pub fn prefix(&self, prefix: impl AsRef<[u8]>) -> UntypedIter {
         self.table.prefix(prefix)
     }
+
+    // These are technically not methods, as they have no `self` parameter,
+    // but they are in the impl block anyway because they use the generic type parameters.
 
     fn parse_result(
         result: backend::Result<Option<backend::Buffer>>,
@@ -305,7 +313,7 @@ impl TryFrom<&[u8]> for InlineStrVec {
 
 impl<'a, A: AsRef<str> + ?Sized> FromIterator<&'a A> for InlineStrVec {
     fn from_iter<T: IntoIterator<Item = &'a A>>(iter: T) -> Self {
-        // When the input is already valid strings, instead of raw bytes, construction is infallible
+        // When the input is already valid strings, as opposed to raw bytes, construction is infallible
         let buffer = iter
             .into_iter()
             .map(AsRef::as_ref)
@@ -391,6 +399,9 @@ pub fn open(path: impl AsRef<Path>) -> Result<Database> {
         .open()
 }
 
+// Over-engineered nonsense to deal with potential file name collisions
+// (This stuff isn't even used anymore anyway...)
+
 pub fn open_temporary() -> Result<Database> {
     let id = std::process::id() as u64;
     let mut range = id..;
@@ -404,6 +415,7 @@ pub fn open_temporary() -> Result<Database> {
 }
 
 fn try_open_temporary(id: u64) -> Result<Database> {
+    // I have no idea how this constant value is derived. It's from Bevy's `EntityHasher`
     const UPPER_PHI: u64 = 0x9e37_79b9_0000_0001;
     let hash = id.wrapping_mul(UPPER_PHI).rotate_left(32);
     let mut path = std::env::temp_dir();

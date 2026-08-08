@@ -10,7 +10,11 @@ use crate::{AppData, DatabaseState, Entry, Tag, tags_db::ActiveTransactionDataba
 /// (Would enum variants as types makes this nicer?)
 macro_rules! app_state {
 	( $name:ident = $( $(#[$meta:meta])* $variant:ident { $($v:vis $field:ident: $t:ty),* $(,)* } ),* $(,)* ) => {
+        // Repetition for each variant
 	    $(
+            // The common fields are duplicated across all variants instead of being pulled out to a wrapper struct because of
+            // the limitations of Xilem's data lensing. This is the only way for these common fields to be available to views
+            // that want to lens down to a specific state variant.
             pub struct $variant {
                 next_state: Option<StateTransitionFunctions<Self>>,
                 pub active_overlay: ActiveOverlay,
@@ -63,10 +67,12 @@ macro_rules! app_state {
             }
         )*
 
+        // The outer enum that contains the above variants
 		pub enum $name {
 			$( $(#[$meta])* $variant ($variant) ),*
 		}
 
+        // Repetitions over each variant to concisely generate match blocks
         impl $name {
             pub fn active_overlay(&self) -> &ActiveOverlay {
                 match &self {
@@ -146,7 +152,10 @@ pub struct SearchMenuState {
 }
 
 app_state! {
+    // Name of the outer enum
     ActiveView =
+
+    // All of the variants
 
     /// Oh no
     UnrecoverableError {},
@@ -191,6 +200,15 @@ impl Default for UnrecoverableError {
     }
 }
 
+/// State transitions work in a deferred manner: they are queued during a frame, then applied later.
+/// This struct holds the functions that perform the state transition until they are actually used.
+///
+/// For some reason, `dyn FnOnce` seems to be an exception to the rule that trait objects can't move `self` by value.
+/// We rely on this to allow consuming parameter values passed in at the call site where a state transition is queued,
+/// by using closure variable capturing to magically store those parameters in the trait object, until they are consumed
+/// by-value when the `dyn FnOnce` is called.
+///
+/// Regarding `update_to_next()`:
 /// The state passed to `finalize_previous_state()` will have its dyn data set to `()`, as at that point
 /// the dyn data has already been moved into the new state (the one returned by `next_state()`)
 pub struct StateTransitionFunctions<From> {
@@ -227,23 +245,29 @@ pub trait StateTransition<To, Parameters>: Sized {
 
 macro_rules! impl_state_transition {
     // No params & no finalizer
+    // Forwards to the following case ("No params") with an empty dummy closure for the finalizer (`|_| Ok(())`)
     (next_state: fn(&mut $from:ty) -> $to:ty = $next_state:expr $(,)*) => {
         impl_state_transition!(next_state: fn(&mut $from) -> $to = $next_state, finalize: fn($from) = |_| Ok(()));
     };
     // No params
+    // Forwards to the "base" case with `()` for the params and a wrapper closure for `next_state` that transparently handles it
     (next_state: fn(&mut $from:ty) -> $to:ty = $next_state:expr, finalize: fn($from2:ty) = $finalize:expr $(,)*) => {
         impl_state_transition!(next_state: fn(&mut $from, ()) -> $to = |from, _| ($next_state as fn(&mut $from) -> $to)(from), finalize: fn($from) = $finalize);
     };
     // No finalizer
+    // Forwards to the following ("base") case with an empty dummy closure for the finalizer (`|_| Ok(())`)
     (next_state: fn(&mut $from:ty, $params:ty) -> $to:ty = $next_state:expr $(,)*) => {
         impl_state_transition!(next_state: fn(&mut $from, $params) -> $to = $next_state, finalize: fn($from) = |_| Ok(()));
     };
-    // Yes params & yes finalizer
+    // "base" case, with params & a finalizer
     (next_state: fn(&mut $from:ty, $params:ty) -> $to:ty = $next_state:expr, finalize: fn($from2:ty) = $finalize:expr $(,)*) => {
         impl StateTransition<$to, $params> for $from {
+            // This is called mid-frame when a state transition is queued
             fn make_transition_fns(parameters: $params) -> StateTransitionFunctions<Self> {
                 StateTransitionFunctions::new(
+                    // Captures the `parameters` variable so that it can be consumed later when the transition actually happens
                     move |from| {
+                        // `.into()` here allows the closure to just directly return the inner variant type
                         ($next_state as fn(&mut Self, $params) -> $to)(from, parameters).into()
                     },
                     |state| {
@@ -276,6 +300,7 @@ impl_state_transition! {
     },
 }
 
+// Identity transitions are valid
 impl_state_transition!(
     next_state: fn(&mut SearchMenu, DatabaseState) -> SearchMenu = |search_menu, db| {
         SearchMenu::new(
@@ -310,6 +335,9 @@ impl_state_transition!(
     },
 );
 
+/// Parameter for this state transition that is just used as a marker to indicate what should be done with the transaction in
+/// the finalizer. Using distinct parameter types allows these two transitions, with the same `from` and `to` states, to be
+/// distinguished at the type-system level.
 pub struct Commit;
 
 impl_state_transition!(
@@ -324,6 +352,9 @@ impl_state_transition!(
     finalize: fn(Edit) = |edit| edit.database.commit().into_diagnostic()
 );
 
+/// Parameter for this state transition that is just used as a marker to indicate what should be done with the transaction in
+/// the finalizer. Using distinct parameter types allows these two transitions, with the same `from` and `to` states, to be
+/// distinguished at the type-system level.
 pub struct Rollback;
 
 impl_state_transition!(
@@ -372,6 +403,7 @@ pub enum ActiveOverlay {
     Spinner,
 }
 
+/// `self` must be passed explicitly as its own ident (`this`) due to how macros work
 macro_rules! set_err {
     ($this:ident, $result:expr $(,)?) => {{
         let result: Result<_, Report> = $result;
@@ -402,6 +434,7 @@ impl ActiveView {
 pub struct EditEntry {
     pub id: Entry,
     pub name: String,
+    /// Why a `BTreeSet`? Because we need an ordered collection that also support set operations (i.e. `intersection`)
     pub tags: BTreeSet<Tag>,
     pub selected: bool,
 }
@@ -416,6 +449,7 @@ impl EditEntry {
     }
 }
 
+/// The UI that uses this stuff is present in multiple states, abstracting it behind a trait makes that UI code reusable
 pub trait LauncherState: 'static {
     fn persistent(&mut self) -> &mut AppData;
 
@@ -563,6 +597,7 @@ impl LauncherState for SearchMenu {
     }
 }
 
+/// The UI that uses this stuff is present in multiple states, abstracting it behind a trait makes that UI code reusable
 pub trait SearchState: 'static {
     fn search_bar(&mut self) -> &mut String;
 
@@ -697,7 +732,7 @@ impl Edit {
     }
 
     pub fn intersection_of_tags_of_selected_entries(&self) -> impl Iterator<Item = &Tag> {
-        // The std `intersection` methods are only implemented for pairs of collections, but we have arbitrarily many
+        // The std `intersection` methods are only implemented for pairs of sets, but we have arbitrarily many
         self.entries
             .iter()
             .filter_map(EditEntry::selected_tags)

@@ -64,7 +64,7 @@ pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedItera
 /// an instance of it is by calling `commit` or `rollback`, which both consume `self`
 pub struct FinalizeTransaction(FinalizeTransactionType);
 
-/// This type and the above tuple struct field should be private so that `TransactionResult` cannot be constructed outside this module
+/// This type and the above tuple struct field should be private so that `FinalizeTransaction` cannot be constructed outside this module
 enum FinalizeTransactionType {
     Commit,
     Rollback,

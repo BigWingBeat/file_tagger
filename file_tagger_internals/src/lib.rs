@@ -19,5 +19,6 @@ pub use crate::{
     tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
 };
 
+// We could use the Cargo env var macros for this but as far as I'm aware there aren't any for workspace name
 const DB_FOLDER_NAME: &str = ".file_tagger";
 const APP_DATA_FOLDER_NAME: &str = "file_tagger";
