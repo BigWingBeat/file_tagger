@@ -96,6 +96,8 @@ pub struct TagsDatabase {
     ///
     /// Key: composite (entry ID + tag name)
     /// Value: tag data
+    ///
+    /// Note: Tags without any associated data are not present, tag instances with empty data (e.g. empty strings) are present
     tag_values: Table<CompositeKey<Entry, Tag>, Buffer>,
     /// Convert tag names to their associated tag entries
     ///
