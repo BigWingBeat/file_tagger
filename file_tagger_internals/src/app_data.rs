@@ -1,5 +1,6 @@
 use std::{ffi::OsString, path::PathBuf};
 
+use arrayvec::ArrayVec;
 use miette::IntoDiagnostic;
 use thiserror::Error;
 
@@ -38,7 +39,8 @@ const MAX_RECENTS: usize = 10;
 pub struct AppData {
     database: Database,
     table: Table<DataKey, InlineStrVec>,
-    recent_folders: Vec<RecentFolder>,
+    /// The `ArrayVec` is boxed as with a capacity of 10 it is 488 bytes, which would more than double the size of `ActiveView`
+    recent_folders: Box<ArrayVec<RecentFolder, MAX_RECENTS>>,
 }
 
 impl AppData {
@@ -53,14 +55,16 @@ impl AppData {
     fn open_tables(database: Database) -> miette::Result<Self> {
         let table = Table::open(&database, "AppData").into_diagnostic()?;
         let recent_folders = table.get(&DataKey::RecentFolders).map(|result| {
-            result
-                .unwrap_or_else(InlineStrVec::empty)
-                .iter()
-                .take(MAX_RECENTS)
-                .map(PathBuf::from)
-                .filter(|p| p.exists())
-                .map(PathBuf::into)
-                .collect()
+            Box::new(
+                result
+                    .unwrap_or_else(InlineStrVec::empty)
+                    .iter()
+                    .take(MAX_RECENTS)
+                    .map(PathBuf::from)
+                    .filter(|p| p.exists())
+                    .map(PathBuf::into)
+                    .collect(),
+            )
         })?;
         Ok(Self {
             database,
@@ -81,17 +85,22 @@ impl AppData {
             .find_map(|(i, f)| (*f == folder).then_some(i))
         {
             &self.recent_folders[i]
-        } else if self.recent_folders.len() < MAX_RECENTS {
-            self.recent_folders.push(folder);
-            // Dumb borrowck nonsense
-            self.recent_folders.last().unwrap()
         } else {
-            self.recent_folders.rotate_left(1);
-            // This unwrap will never fail because of the length check above (unless `MAX_RECENTS` is 0 for some reason)
-            let most_recent = self.recent_folders.last_mut().unwrap();
-            *most_recent = folder;
-            // Dumb borrowck nonsense
-            self.recent_folders.last().unwrap()
+            match self.recent_folders.try_push(folder) {
+                Ok(_) => self.recent_folders.last().unwrap(),
+                Err(e) => {
+                    // The vec is full, replace the oldest entry instead
+                    let folder = e.element();
+                    // This moves every entry down by 1, with the oldest becoming the newest
+                    self.recent_folders.rotate_left(1);
+                    // This unwrap will never fail because `try_push` only returns `Err` when the vec is full
+                    // (unless `MAX_RECENTS` is 0 for some reason, but then the `rotate_left` would have panicked first)
+                    let most_recent = self.recent_folders.last_mut().unwrap();
+                    *most_recent = folder;
+                    // Dumb borrowck nonsense
+                    self.recent_folders.last().unwrap()
+                }
+            }
         };
         self.write_recent_folders().map(|_| folder)
     }
