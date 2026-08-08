@@ -422,9 +422,8 @@ impl ActiveView {
         match AppData::open() {
             Ok(persistent) => Launcher::new_with(data, persistent, Default::default()).into(),
             Err(e) => UnrecoverableError {
-                next_state: None,
                 active_overlay: ActiveOverlay::Error(e),
-                data: Box::new(data),
+                ..UnrecoverableError::new_with(data)
             }
             .into(),
         }
