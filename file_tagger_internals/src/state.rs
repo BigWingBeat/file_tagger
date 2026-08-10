@@ -787,7 +787,7 @@ impl Edit {
 
     pub fn try_add_searched_tag_to_selected(&mut self) {
         let tag = self.tag_search_bar_state.as_str().into();
-        let tag_exists = set_err!(self, self.database.tag_exists(&tag));
+        let tag_exists = set_err!(self, self.database.tag_exists(&tag).into_diagnostic());
         if tag_exists && self.add_tag_to_selected(&tag) {
             self.tag_search_bar_state.clear();
         }
@@ -796,7 +796,7 @@ impl Edit {
     pub fn tag_prefix_search_results(&mut self) -> impl Iterator<Item = Tag> {
         self.database
             .search_tags_names_by_prefix(&self.tag_search_bar_state)
-            .map_while(|result| match result {
+            .map_while(|result| match result.into_diagnostic() {
                 Ok(tag) => Some(tag),
                 Err(e) => {
                     self.active_overlay = ActiveOverlay::Error(e);

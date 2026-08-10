@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::{
     APP_DATA_FOLDER_NAME,
-    database::{self, Database, InlineStrVec, Table},
+    database::{self, AsBytes, Bytes, Database, FromBytes, InlineStrVec, SizeHint, Table},
 };
 
 #[derive(Clone)]
@@ -54,18 +54,21 @@ impl AppData {
 
     fn open_tables(database: Database) -> miette::Result<Self> {
         let table = Table::open(&database, "AppData").into_diagnostic()?;
-        let recent_folders = table.get(&DataKey::RecentFolders).map(|result| {
-            Box::new(
-                result
-                    .unwrap_or_else(InlineStrVec::empty)
-                    .iter()
-                    .take(MAX_RECENTS)
-                    .map(PathBuf::from)
-                    .filter(|p| p.exists())
-                    .map(PathBuf::into)
-                    .collect(),
-            )
-        })?;
+        let recent_folders = table
+            .get(&DataKey::RecentFolders)
+            .map(|result| {
+                Box::new(
+                    result
+                        .unwrap_or_else(InlineStrVec::empty)
+                        .iter()
+                        .take(MAX_RECENTS)
+                        .map(PathBuf::from)
+                        .filter(|p| p.exists())
+                        .map(PathBuf::into)
+                        .collect(),
+                )
+            })
+            .into_diagnostic()?;
         Ok(Self {
             database,
             table,
@@ -129,19 +132,26 @@ enum DataKeyParseError {
     InvalidKey,
 }
 
-impl AsRef<[u8]> for DataKey {
-    fn as_ref(&self) -> &[u8] {
+impl SizeHint for DataKey {
+    const SIZE_HINT: Option<usize> = None;
+}
+
+impl AsBytes for DataKey {
+    type Bytes = &'static str;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         match self {
-            DataKey::RecentFolders => b"RecentFolders",
+            DataKey::RecentFolders => Bytes::Owned("RecentFolders"),
         }
     }
 }
 
-impl TryFrom<&[u8]> for DataKey {
+impl FromBytes for DataKey {
     type Error = DataKeyParseError;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        match value {
+    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
+        // Signal to the caller that we're "consuming" all the bytes
+        match std::mem::take(bytes) {
             b"RecentFolders" => Ok(Self::RecentFolders),
             _ => Err(DataKeyParseError::InvalidKey),
         }

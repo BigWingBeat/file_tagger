@@ -1,20 +1,22 @@
 use std::{
     fmt::{Debug, Display, Formatter},
+    io::Read,
     path::{Path, PathBuf},
     str::Utf8Error,
     sync::{Arc, Mutex},
 };
 
+use byteview::StrView;
 use miette::IntoDiagnostic;
-use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec};
-use smallvec::SmallVec;
+use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec, id::RangeError};
 use thiserror::Error;
 
 use crate::{
     DB_FOLDER_NAME, TransactionApi,
     app_data::RecentFolder,
     database::{
-        self, AsBytes, Buffer, Bytes, CompositeKey, Database, INLINE_SIZE, InlineStrVec, Table,
+        self, AsBytes, Buffer, Bytes, Database, DbError, DerefProxy, FromBytes, InlineStrVec,
+        Serde, SizeHint, SmallVec, Table,
     },
     initialize_transaction,
 };
@@ -61,18 +63,18 @@ impl DatabaseState {
         self.database.initialize_transaction()
     }
 
-    pub fn tag_entry_by_name(&self, tag: &Tag) -> miette::Result<Option<Entry>> {
+    pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DbError<Tag, Entry>> {
         self.database.tag_entry_by_name(tag)
     }
 
-    pub fn tag_exists(&self, tag: &Tag) -> miette::Result<bool> {
+    pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DbError<Tag, Entry>> {
         self.database.tag_exists(tag)
     }
 
     pub fn search_tags_names_by_prefix(
         &self,
         prefix: impl AsRef<[u8]>,
-    ) -> impl Iterator<Item = miette::Result<Tag>> {
+    ) -> impl Iterator<Item = Result<Tag, DbError<Tag, Entry>>> {
         self.database.search_tags_names_by_prefix(prefix)
     }
 }
@@ -86,7 +88,7 @@ pub struct TagsDatabase {
     /// Value: list of entry IDs
     ///
     /// Note: data in key is split by word for strings ("inverted index") and not present for binary blobs
-    entries_by_tag: Table<CompositeKey<Tag, Buffer>, Entry>,
+    entries_by_tag: Table<(Tag, Buffer), SmallVec<Entry>>,
     /// Lookup which tags are applied to entries
     ///
     /// Key: entry ID
@@ -98,7 +100,7 @@ pub struct TagsDatabase {
     /// Value: tag data
     ///
     /// Note: Tags without any associated data are not present, tag instances with empty data (e.g. empty strings) are present
-    tag_values: Table<CompositeKey<Entry, Tag>, Buffer>,
+    tag_values: Table<(Entry, Tag), Buffer>,
     /// Convert tag names to their associated tag entries
     ///
     /// Key: tag name
@@ -115,7 +117,9 @@ impl TagsDatabase {
         let tags_by_entry = Table::open(&database, "TagsByEntry").into_diagnostic()?;
         let tag_values = Table::open(&database, "TagValues").into_diagnostic()?;
         let tag_entries = Table::open(&database, "TagEntries").into_diagnostic()?;
-        let generator = Arc::new(Mutex::new(init_or_resume_generator(&tags_by_entry)?));
+        let generator = Arc::new(Mutex::new(
+            init_or_resume_generator(&tags_by_entry).into_diagnostic()?,
+        ));
         Ok(Self {
             database,
             entries_by_tag,
@@ -152,18 +156,18 @@ impl TagsDatabase {
         }
     }
 
-    fn tag_entry_by_name(&self, tag: &Tag) -> miette::Result<Option<Entry>> {
+    fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DbError<Tag, Entry>> {
         self.tag_entries.get(tag)
     }
 
-    fn tag_exists(&self, tag: &Tag) -> miette::Result<bool> {
+    fn tag_exists(&self, tag: &Tag) -> Result<bool, DbError<Tag, Entry>> {
         self.tag_entries.get(tag).map(|entry| entry.is_some())
     }
 
     fn search_tags_names_by_prefix(
         &self,
         prefix: impl AsRef<[u8]>,
-    ) -> impl Iterator<Item = miette::Result<Tag>> {
+    ) -> impl Iterator<Item = Result<Tag, DbError<Tag, Entry>>> {
         self.tag_entries.prefix(prefix).map(|kv| kv.map(|(k, _)| k))
     }
 
@@ -194,7 +198,7 @@ impl ActiveTransactionDatabaseState {
         self.db.generate_entry()
     }
 
-    pub fn tag_exists(&self, tag: &Tag) -> miette::Result<bool> {
+    pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DbError<Tag, Entry>> {
         self.transaction
             .get(&self.db.database.tag_entries, tag)
             .map(|entry| entry.is_some())
@@ -203,7 +207,7 @@ impl ActiveTransactionDatabaseState {
     pub fn search_tags_names_by_prefix(
         &self,
         prefix: impl Into<Buffer>,
-    ) -> impl Iterator<Item = miette::Result<Tag>> {
+    ) -> impl Iterator<Item = Result<Tag, DbError<Tag, Entry>>> {
         self.transaction
             .prefix(&self.db.database.tag_entries, prefix)
             .map(|kv| kv.map(|(k, _)| k))
@@ -221,20 +225,51 @@ impl ActiveTransactionDatabaseState {
 /// Identifies a single entry in the database, which can have many associated tags.
 /// Value is stored in big-endian form for correct lexicographic ordering.
 /// Used for non-tag entries
-#[repr(transparent)]
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct Entry(Scru64Id);
-
-impl AsBytes for Entry {
-    type Bytes = [u8; 8];
-    fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Owned(self.0.to_u64().to_be_bytes())
-    }
-}
 
 impl Display for Entry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl SizeHint for Entry {
+    const SIZE_HINT: Option<usize> = Some(size_of::<u64>());
+}
+
+impl AsBytes for Entry {
+    type Bytes = DerefProxy<[u8; 8]>;
+
+    fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Owned(self.0.to_u64().to_be_bytes().into())
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum EntryParseError {
+    #[error("entry ID doesn't have enough bytes: {0} is less than {n}", n = size_of::<u64>())]
+    UnexpectedEOF(usize),
+    #[error(transparent)]
+    Range(#[from] RangeError<u64>),
+}
+
+impl FromBytes for Entry {
+    type Error = EntryParseError;
+
+    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
+        let total = bytes.len();
+        let mut buf = [0; _];
+        // As we are reading from an in-memory `&[u8]`, the only possible IO error is `UnexpectedEof`
+        bytes
+            .read_exact(&mut buf)
+            .map_err(|_| EntryParseError::UnexpectedEOF(total))?;
+
+        u64::from_be_bytes(buf)
+            .try_into()
+            .map(Self)
+            .map_err(Into::into)
     }
 }
 
@@ -244,66 +279,51 @@ impl From<Scru64Id> for Entry {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum EntryParseError {
-    #[error("entry ID doesn't have enough bytes: {0} is less than 8")]
-    NotEnoughBytes(usize),
-    #[error("entry ID has too many bytes: {0} is more than 8")]
-    TooManyBytes(usize),
-    #[error(transparent)]
-    Range(#[from] scru64::id::RangeError<u64>),
-}
+impl TryFrom<[u8; 8]> for Entry {
+    type Error = RangeError<u64>;
 
-impl TryFrom<&[u8]> for Entry {
-    type Error = EntryParseError;
-
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        match value.as_chunks() {
-            (&[value], []) => u64::from_be_bytes(value)
-                .try_into()
-                .map(Self)
-                .map_err(Into::into),
-            ([], _) => Err(EntryParseError::NotEnoughBytes(value.len())),
-            _ => Err(EntryParseError::TooManyBytes(value.len())),
-        }
+    fn try_from(bytes: [u8; 8]) -> Result<Self, Self::Error> {
+        u64::from_be_bytes(bytes).try_into().map(Self)
     }
 }
 
 /// User-facing UTF-8 identifier for a tag, which is a type that can have instances associated with specific entries.
 /// Each tag also has its own associated entry, which can itself be tagged.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-pub struct Tag(SmallVec<[u8; INLINE_SIZE]>);
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+pub struct Tag(StrView);
 
-impl AsRef<[u8]> for Tag {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
+impl SizeHint for Tag {
+    const SIZE_HINT: Option<usize> = None;
+}
+
+impl FromBytes for Tag {
+    type Error = Utf8Error;
+
+    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
+        // Signal to the caller that we're "consuming" all the bytes (by copying them)
+        let bytes = std::mem::take(bytes);
+        // Only copy if the bytes are actually a valid string
+        str::from_utf8(bytes).map(Into::into).map(Self)
+    }
+}
+
+impl AsBytes for Tag {
+    type Bytes = String;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Borrowed(self.0.as_ref())
     }
 }
 
 impl From<&str> for Tag {
-    fn from(value: &str) -> Self {
-        Self(SmallVec::from_slice(value.as_bytes()))
-    }
-}
-
-impl TryFrom<&[u8]> for Tag {
-    type Error = Utf8Error;
-
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        str::from_utf8(value).map(|value| Self(SmallVec::from_slice(value.as_bytes())))
+    fn from(string: &str) -> Self {
+        Self(string.into())
     }
 }
 
 impl Tag {
     pub fn as_str(&self) -> &str {
-        // SAFETY: The contained bytes are asserted to be valid UTF-8 on construction, and the value is immutable
-        unsafe { str::from_utf8_unchecked(&self.0) }
-    }
-}
-
-impl Debug for Tag {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Tag").field(&self.as_str()).finish()
+        &self.0
     }
 }
 
@@ -313,9 +333,9 @@ impl Display for Tag {
     }
 }
 
-fn init_or_resume_generator<Value: for<'a> database::Value<'a>>(
+fn init_or_resume_generator<Value: Serde>(
     table: &Table<Entry, Value>,
-) -> miette::Result<Scru64Generator> {
+) -> Result<Scru64Generator, DbError<Entry, Value>> {
     // Scru64 ids are always 64 bits. This parameter controls how many of those bits are allocated to a custom value we control.
     // This is useful for distributed systems with multiple nodes using the same ID space, but we are just an offline, local app,
     // so we don't need this. Instead, we set this to the smallest allowed number of bits (1), which maximizes the number of bits
