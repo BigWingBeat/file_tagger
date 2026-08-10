@@ -290,6 +290,7 @@ impl TryFrom<[u8; 8]> for Entry {
 /// User-facing UTF-8 identifier for a tag, which is a type that can have instances associated with specific entries.
 /// Each tag also has its own associated entry, which can itself be tagged.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[repr(transparent)]
 pub struct Tag(StrView);
 
 impl SizeHint for Tag {

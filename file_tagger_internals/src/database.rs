@@ -49,6 +49,7 @@ pub trait ICantBelieveItsNotDeref {
     fn deref(&self) -> &Self::Target;
 }
 
+#[repr(transparent)]
 pub struct DerefProxy<T>(T);
 
 impl<T> From<T> for DerefProxy<T> {
