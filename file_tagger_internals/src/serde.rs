@@ -31,6 +31,7 @@ where
 
 pub trait ICantBelieveItsNotDeref {
     type Target: ?Sized;
+    #[must_use]
     fn deref(&self) -> &Self::Target;
 }
 
@@ -324,21 +325,22 @@ impl<T> SizeHint for SmallVec<T> {
 }
 
 /// hack
-pub trait StableSize {
+pub trait ConstantSize {
     /// hack
     const SIZE: usize;
 }
 
 /// hack
-impl<T: SizeHint> StableSize for T {
+impl<T: SizeHint> ConstantSize for T {
     /// hack
+    /// The unwrap being in a const expr makes it a compile error instead of a runtime panic
     const SIZE: usize = T::SIZE_HINT.unwrap();
 }
 
 /// Only supported for element types with constant serialized size
 impl<T> AsBytes for SmallVec<T>
 where
-    T: AsBytes + StableSize,
+    T: AsBytes + ConstantSize,
 {
     type Bytes = Buffer;
 
@@ -357,7 +359,7 @@ where
 /// Only supported for element types with constant serialized size
 impl<T> FromBytes for SmallVec<T>
 where
-    T: FromBytes + StableSize,
+    T: FromBytes + ConstantSize,
 {
     type Error = T::Error;
 
