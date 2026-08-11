@@ -6,7 +6,8 @@ use thiserror::Error;
 
 use crate::{
     APP_DATA_FOLDER_NAME,
-    database::{self, AsBytes, Bytes, Database, FromBytes, InlineStrVec, SizeHint, Table},
+    database::{Database, Table},
+    serde::{AsBytes, Bytes, FromBytes, InlineStrVec, SizeHint},
 };
 
 #[derive(Clone)]
@@ -47,7 +48,7 @@ impl AppData {
     pub fn open() -> miette::Result<Self> {
         let mut path = dirs::data_local_dir().unwrap();
         path.push(APP_DATA_FOLDER_NAME);
-        database::open(path)
+        crate::database::open(path)
             .into_diagnostic()
             .and_then(Self::open_tables)
     }
@@ -76,7 +77,10 @@ impl AppData {
         })
     }
 
-    pub fn push_recent_folder(&mut self, folder: PathBuf) -> database::Result<&RecentFolder> {
+    pub fn push_recent_folder(
+        &mut self,
+        folder: PathBuf,
+    ) -> crate::database::Result<&RecentFolder> {
         let folder = folder.into();
         // Doing a linear search is fine as this vec is always small.
         // We can't just use `contains()` here as we need to get a reference to the element.
@@ -112,7 +116,7 @@ impl AppData {
         &self.recent_folders
     }
 
-    fn write_recent_folders(&self) -> database::Result<()> {
+    fn write_recent_folders(&self) -> crate::database::Result<()> {
         let buffer = self
             .recent_folders
             .iter()

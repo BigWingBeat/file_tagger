@@ -1,6 +1,7 @@
 mod app_data;
 mod database;
 mod files;
+mod serde;
 mod state;
 mod tags_db;
 

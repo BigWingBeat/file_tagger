@@ -14,11 +14,9 @@ use thiserror::Error;
 use crate::{
     DB_FOLDER_NAME, TransactionApi,
     app_data::RecentFolder,
-    database::{
-        self, AsBytes, Buffer, Bytes, Database, DbError, DerefProxy, FromBytes, InlineStrVec,
-        Serde, SizeHint, SmallVec, Table,
-    },
+    database::{Buffer, Database, DbError, Table},
     initialize_transaction,
+    serde::{AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Serde, SizeHint, SmallVec},
 };
 
 #[derive(Clone)]
@@ -131,13 +129,13 @@ impl TagsDatabase {
     }
 
     fn open(path: impl AsRef<Path>) -> miette::Result<Self> {
-        database::open(path)
+        crate::database::open(path)
             .into_diagnostic()
             .and_then(Self::open_tables)
     }
 
     fn open_temporary() -> miette::Result<Self> {
-        database::open_temporary()
+        crate::database::open_temporary()
             .into_diagnostic()
             .and_then(Self::open_tables)
     }
@@ -213,7 +211,7 @@ impl ActiveTransactionDatabaseState {
             .map(|kv| kv.map(|(k, _)| k))
     }
 
-    pub fn commit(self) -> database::Result<()> {
+    pub fn commit(self) -> crate::database::Result<()> {
         self.transaction.commit()
     }
 
