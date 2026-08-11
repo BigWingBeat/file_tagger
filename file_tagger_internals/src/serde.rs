@@ -1,4 +1,4 @@
-use std::{convert::Infallible, io::Read, ops::Deref, str::Utf8Error};
+use std::{convert::Infallible, ops::Deref, str::Utf8Error};
 
 use byteview::ByteView;
 use thiserror::Error;

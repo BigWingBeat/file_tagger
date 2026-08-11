@@ -211,12 +211,12 @@ impl Default for UnrecoverableError {
 /// Regarding `update_to_next()`:
 /// The state passed to `finalize_previous_state()` will have its dyn data set to `()`, as at that point
 /// the dyn data has already been moved into the new state (the one returned by `next_state()`)
-pub struct StateTransitionFunctions<From> {
+pub struct StateTransitionFunctions<From: ?Sized> {
     next_state: Box<dyn FnOnce(&mut From) -> ActiveView>,
     finalize_previous_state: Box<dyn FnOnce(ActiveView) -> Result<(), Report>>,
 }
 
-impl<From> StateTransitionFunctions<From> {
+impl<From: ?Sized> StateTransitionFunctions<From> {
     fn new(
         next_state: impl FnOnce(&mut From) -> ActiveView + 'static,
         finalize_previous_state: impl FnOnce(ActiveView) -> Result<(), Report> + 'static,
@@ -239,7 +239,7 @@ impl<From> StateTransitionFunctions<From> {
     }
 }
 
-pub trait StateTransition<To, Parameters>: Sized {
+pub trait StateTransition<To, Parameters> {
     fn make_transition_fns(parameters: Parameters) -> StateTransitionFunctions<Self>;
 }
 
