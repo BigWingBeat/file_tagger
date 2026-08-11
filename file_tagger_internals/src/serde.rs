@@ -100,6 +100,80 @@ impl<B: HasBytes> AsRef<[u8]> for Bytes<'_, B> {
     }
 }
 
+/// Wrapper around a byte slice to ensure that implementors of `FromBytes` always visibly "consume" the bytes they read,
+/// rather than just invisibly copying them. Preferable to `std::io::Read` because we know that the byte source is just an
+/// in-memory `&[u8]`, so we know we don't have to deal with any possible I/O errors
+pub struct Reader<'a> {
+    initial_total_bytes: usize,
+    bytes: &'a [u8],
+}
+
+#[derive(Debug, Error)]
+#[error("expected the buffer to have at least {0} bytes but it had only {1} bytes total")]
+pub struct UnexpectedEof(usize, usize);
+
+impl<'a> Reader<'a> {
+    pub fn new(bytes: &'a [u8]) -> Self {
+        Self {
+            initial_total_bytes: bytes.len(),
+            bytes,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn initial_total(&self) -> usize {
+        self.initial_total_bytes
+    }
+
+    pub fn total_read(&self) -> usize {
+        self.initial_total_bytes - self.bytes.len()
+    }
+
+    fn expected_more_bytes(&self, bytes: usize) -> UnexpectedEof {
+        UnexpectedEof(self.total_read() + bytes, self.initial_total_bytes)
+    }
+
+    /// Consume a const number of bytes from the buffer, or return an error if the buffer doesn't have enough bytes.
+    /// If the number of bytes to read is not a const, use [`split_off`] instead.
+    pub fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], UnexpectedEof> {
+        // There isn't any chunks-type method that shrinks the input slice like `split_off`, so we must do this manually
+        let bytes = self
+            .bytes
+            .split_off(..N)
+            .ok_or_else(|| self.expected_more_bytes(N))?;
+        let mut buf = [0; N];
+        buf.copy_from_slice(bytes);
+        Ok(buf)
+    }
+
+    /// Consume an exact amount of bytes from the buffer, or return an error if the buffer doesn't have enough bytes.
+    /// If the number of bytes to read is a constant value, consider using [`read_exact`] to get an array back instead.
+    pub fn split_off(&mut self, bytes: usize) -> Result<Self, UnexpectedEof> {
+        self.bytes
+            .split_off(..bytes)
+            .ok_or_else(|| self.expected_more_bytes(bytes))
+            .map(Self::new)
+    }
+
+    /// Consume the entire buffer.
+    pub fn take_all(&mut self) -> &'a [u8] {
+        std::mem::take(&mut self.bytes)
+    }
+}
+
+impl<'a> From<&'a [u8]> for Reader<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
+        Self::new(bytes)
+    }
+}
+
 /// Does this type have a constant size (in bytes) when serialized, or is it variable?
 /// If `SIZE_HINT` is `Some(_)`, types should always consume exactly that many bytes from the input buffer in their `FromBytes`
 /// impl. If it is `None`, types should instead consume the entire buffer.
@@ -114,12 +188,10 @@ pub trait AsBytes: SizeHint {
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes>;
 }
 
-/// A bit like `TryFrom<&[u8]>`, but controlled by us to workaround the orphan rule (we need to impl deser logic for foreign types).
-/// Takes a `&mut &[u8]` to encourage using `std::io::read` methods, but without obfuscating that the source is just a `&[u8]`
-/// (as would happen with `bytes: impl Read`), so that implementors can be confident that the read methods can't return weird errors.
+/// A bit like `TryFrom<&[u8]>`, but controlled by us to workaround the orphan rule (we need to impl deser logic for foreign types)
 pub trait FromBytes: SizeHint + Sized {
     type Error;
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error>;
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error>;
 }
 
 /// Kind of an extension trait to mirror std `from`/`into` ergonomics (not `TryInto` because orphan rule)
@@ -158,15 +230,14 @@ impl<T: FromBytes> BytesInto<T> for &Buffer {
     type Error = BytesIntoError<T>;
 
     fn bytes_into(self) -> Result<T, Self::Error> {
-        let total_bytes = self.len();
-        let mut bytes = self.as_ref();
+        let mut bytes = self.as_ref().into();
         T::try_from(&mut bytes)
             .map_err(BytesIntoError::Deser)
             .and_then(|result| {
                 bytes
                     .is_empty()
                     .then_some(result)
-                    .ok_or_else(|| BytesIntoError::ExpectedEof(bytes.len(), total_bytes))
+                    .ok_or_else(|| BytesIntoError::ExpectedEof(bytes.len(), bytes.initial_total()))
             })
     }
 }
@@ -192,7 +263,7 @@ impl InlineStrVec {
 
     pub fn iter(&self) -> InlineStrVecIter<'_> {
         InlineStrVecIter {
-            buffer: &self.buffer,
+            reader: Reader::new(&self.buffer),
         }
     }
 }
@@ -208,15 +279,11 @@ impl<'a> IntoIterator for &'a InlineStrVec {
 }
 
 #[derive(Error, Debug)]
-pub enum InlineStrVecParseError {
-    #[error(
-        "unexpected EOF while reading length prefix: expected the buffer to have at least {0} bytes but it had only {1} bytes total"
-    )]
-    LengthPrefixUnexpectedEOF(usize, usize),
-    #[error(
-        "unexpected EOF while reading string: expected the buffer to have at least {0} bytes but it had only {1} bytes total"
-    )]
-    StringUnexpectedEOF(usize, usize),
+pub enum InlineStrVecError {
+    #[error("unexpected EOF while reading length prefix")]
+    LengthPrefixEof(#[source] UnexpectedEof),
+    #[error("unexpected EOF while reading string")]
+    StringEof(#[source] UnexpectedEof),
     #[error(transparent)]
     InvalidUTF8(#[from] Utf8Error),
 }
@@ -226,41 +293,32 @@ impl SizeHint for InlineStrVec {
 }
 
 impl FromBytes for InlineStrVec {
-    type Error = InlineStrVecParseError;
+    type Error = InlineStrVecError;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
-        // It's important for this to check that the buffer is well-formed so the iterator impl can be infallible.
+    // It's important for this to check that the buffer is well-formed so the iterator impl can be infallible.
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        // We get a hold of the entire buffer, then reconstruct the reader, because the reading we do is only for
+        // checking correctness, and we really want to just copy the entire buffer all at once, afterwards.
+        // Shared refs are `Copy`, so the new reader has its own copy of the buffer ref, separate from the one in `buffer`
+        let buffer = bytes.take_all();
+        let mut bytes = Reader::new(buffer);
 
-        // `bytes` is a mut ref to a shared ref to a buffer of bytes. In the while-loop, we mutate that inner shared ref
-        // to point to smaller subslices, until it is empty due to pointing to a 0-length subslice (and we have verified
-        // that the entire buffer is well-formed). `buffer` here is a copy of that inner shared ref, that points to the
-        // entire buffer, separately from the shared ref in `bytes` that we are mutating.
-        // We do it like this so that we can copy the whole buffer all at once at the end, rather than bit-by-bit in the loop,
-        // and so that the caller is also able to observe us "consuming" the bytes in the buffer, from us mutating that shared ref.
-        let buffer = *bytes;
         while !bytes.is_empty() {
-            let bytes_read = buffer.len() - bytes.len();
             // The format is a little-endian u32, followed by a string of that many bytes, repeated to the end of the buffer
-            let mut prefix = [0; _];
-            bytes
-                .read_exact(&mut prefix)
-                // As we are reading from an in-memory `&[u8]`, the only possible IO error is `UnexpectedEof`
-                .map_err(|_| {
-                    InlineStrVecParseError::LengthPrefixUnexpectedEOF(
-                        bytes_read + prefix.len(),
-                        buffer.len(),
-                    )
-                })?;
+            let prefix = bytes
+                .read_exact()
+                .map_err(InlineStrVecError::LengthPrefixEof)?;
             let len = u32::from_le_bytes(prefix) as _;
-            let string = bytes.split_off(..len).ok_or_else(|| {
-                InlineStrVecParseError::StringUnexpectedEOF(
-                    bytes_read + prefix.len() + len,
-                    buffer.len(),
-                )
-            })?;
+
+            let string = bytes
+                .split_off(len)
+                .map_err(InlineStrVecError::StringEof)?
+                .take_all();
+
             // We just need to check that the bytes in the buffer are valid UTF-8, doing anything with the str is unneeded
             let _ = str::from_utf8(string)?;
         }
+
         Ok(Self {
             buffer: buffer.into(),
         })
@@ -288,24 +346,22 @@ impl<'a, A: AsRef<str> + ?Sized> FromIterator<&'a A> for InlineStrVec {
 }
 
 pub struct InlineStrVecIter<'a> {
-    buffer: &'a [u8],
+    reader: Reader<'a>,
 }
 
 impl<'a> Iterator for InlineStrVecIter<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer.is_empty() {
+        if self.reader.is_empty() {
             return None;
         }
 
         // We use unwraps here because `InlineStrVec` ensures it is well-formed on construction, so it should be fine
-        let mut len = [0u8; 4];
-        self.buffer.read_exact(&mut len).unwrap();
-        let len = u32::from_le_bytes(len);
-        let (value, remaining) = self.buffer.split_at(len as usize);
-        self.buffer = remaining;
-        Some(str::from_utf8(value).unwrap())
+        let len = self.reader.read_exact().unwrap();
+        let len = u32::from_le_bytes(len) as _;
+        let string = self.reader.split_off(len).unwrap().take_all();
+        Some(str::from_utf8(string).unwrap())
     }
 }
 
@@ -363,7 +419,7 @@ where
 {
     type Error = T::Error;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, T::Error> {
+    fn try_from(bytes: &mut Reader) -> Result<Self, T::Error> {
         let elements = bytes.len() / T::SIZE;
         let mut vec = Self::with_capacity(elements);
         while !bytes.is_empty() {
@@ -413,15 +469,11 @@ impl<T: AsBytes, U: AsBytes> AsBytes for (T, U) {
 
 #[derive(Error)]
 pub enum TupleError<T: FromBytes, U: FromBytes> {
-    #[error(
-        "unexpected EOF while reading length prefix: expected the buffer to have at least {0} bytes but it had only {1} bytes total"
-    )]
-    LengthPrefixUnexpectedEof(usize, usize),
-    #[error(
-        "unexpected EOF while deserializing first tuple element: expected the buffer to have at least {0} bytes but it had only {1} bytes total"
-    )]
-    FirstUnexpectedEof(usize, usize),
-    // These can't be `#[from]` because ugh (see BytesIntoError *AND* DbError)
+    // None of these can be `#[from]` because ugh (see BytesIntoError *AND* DbError)
+    #[error("unexpected EOF while reading length prefix")]
+    LengthPrefixEof(#[source] UnexpectedEof),
+    #[error("unexpected EOF while deserializing first tuple element")]
+    FirstEof(#[source] UnexpectedEof),
     #[error("error deserializing first tuple element")]
     First(#[source] T::Error),
     #[error("error deserializing second tuple element")]
@@ -431,30 +483,25 @@ pub enum TupleError<T: FromBytes, U: FromBytes> {
 impl<T: FromBytes, U: FromBytes> FromBytes for (T, U) {
     type Error = TupleError<T, U>;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
         if T::SIZE_HINT.is_none() {
-            let total = bytes.len();
             // If `T` has a variable size, we have a length prefix
-            let mut prefix = [0; _];
-            bytes
-                .read_exact(&mut prefix)
-                // As we are reading from an in-memory `&[u8]`, the only possible IO error is `UnexpectedEof`
-                .map_err(|_| TupleError::LengthPrefixUnexpectedEof(prefix.len(), total))?;
+            let prefix = bytes.read_exact().map_err(TupleError::LengthPrefixEof)?;
             let len = u32::from_le_bytes(prefix) as _;
-            // `split_off` is correct here, rather than `split_at_checked`, so that the bytes being consumed is visible to the caller
-            let mut t = bytes
-                .split_off(..len)
-                .ok_or_else(|| TupleError::FirstUnexpectedEof(prefix.len() + len, total))?;
+            let mut t = bytes.split_off(len).map_err(TupleError::FirstEof)?;
+
             let result = (
                 T::try_from(&mut t).map_err(TupleError::First)?,
                 // `U` doesn't have a length prefix as it is implicitly bounded by the end of the buffer
                 U::try_from(bytes).map_err(TupleError::Second)?,
             );
+
             if !t.is_empty() {
                 // The `split_off`, from the perspective of the caller, acts like eagerly consuming all of `T`'s bytes.
                 // If `T` doesn't actually consume all of its bytes, we make that visible here
                 *bytes = t;
             }
+
             Ok(result)
         } else {
             Ok((
@@ -480,8 +527,7 @@ impl AsBytes for Buffer {
 impl FromBytes for Buffer {
     type Error = Infallible;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
-        // Use `take` to signal to the caller that we're "consuming" all of the bytes
-        Ok(std::mem::take(bytes).into())
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        Ok(bytes.take_all().into())
     }
 }

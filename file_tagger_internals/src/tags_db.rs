@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Display, Formatter},
-    io::Read,
     path::{Path, PathBuf},
     str::Utf8Error,
     sync::{Arc, Mutex},
@@ -16,7 +15,10 @@ use crate::{
     app_data::RecentFolder,
     database::{Buffer, Database, DbError, Table},
     initialize_transaction,
-    serde::{AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Serde, SizeHint, SmallVec},
+    serde::{
+        AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Reader, Serde, SizeHint, SmallVec,
+        UnexpectedEof,
+    },
 };
 
 #[derive(Clone)]
@@ -247,8 +249,8 @@ impl AsBytes for Entry {
 
 #[derive(Error, Debug)]
 pub enum EntryParseError {
-    #[error("entry ID doesn't have enough bytes: {0} is less than {n}", n = size_of::<u64>())]
-    UnexpectedEOF(usize),
+    #[error("unexpected EOF while reading entry ID")]
+    UnexpectedEOF(#[from] UnexpectedEof),
     #[error(transparent)]
     Range(#[from] RangeError<u64>),
 }
@@ -256,18 +258,13 @@ pub enum EntryParseError {
 impl FromBytes for Entry {
     type Error = EntryParseError;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
-        let total = bytes.len();
-        let mut buf = [0; _];
-        // As we are reading from an in-memory `&[u8]`, the only possible IO error is `UnexpectedEof`
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
         bytes
-            .read_exact(&mut buf)
-            .map_err(|_| EntryParseError::UnexpectedEOF(total))?;
-
-        u64::from_be_bytes(buf)
-            .try_into()
-            .map(Self)
+            .read_exact()
             .map_err(Into::into)
+            .map(u64::from_be_bytes)
+            .and_then(|u64| u64.try_into().map_err(Into::into))
+            .map(Self)
     }
 }
 
@@ -298,11 +295,8 @@ impl SizeHint for Tag {
 impl FromBytes for Tag {
     type Error = Utf8Error;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
-        // Signal to the caller that we're "consuming" all the bytes (by copying them)
-        let bytes = std::mem::take(bytes);
-        // Only copy if the bytes are actually a valid string
-        str::from_utf8(bytes).map(Into::into).map(Self)
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        str::from_utf8(bytes.take_all()).map(Into::into).map(Self)
     }
 }
 

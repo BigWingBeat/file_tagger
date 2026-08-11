@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::{
     APP_DATA_FOLDER_NAME,
     database::{Database, Table},
-    serde::{AsBytes, Bytes, FromBytes, InlineStrVec, SizeHint},
+    serde::{AsBytes, Bytes, FromBytes, InlineStrVec, Reader, SizeHint},
 };
 
 #[derive(Clone)]
@@ -153,9 +153,8 @@ impl AsBytes for DataKey {
 impl FromBytes for DataKey {
     type Error = DataKeyParseError;
 
-    fn try_from(bytes: &mut &[u8]) -> Result<Self, Self::Error> {
-        // Signal to the caller that we're "consuming" all the bytes
-        match std::mem::take(bytes) {
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        match bytes.take_all() {
             b"RecentFolders" => Ok(Self::RecentFolders),
             _ => Err(DataKeyParseError::InvalidKey),
         }
