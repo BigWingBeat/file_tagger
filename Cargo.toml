@@ -15,6 +15,7 @@ byteview = "0.10"
 dirs = "6.0"
 fjall = { version = "3.1" }
 miette = { version = "7.6", features = ["fancy-no-syscall"] }
+replace_with = "0.1"
 rfd = "0.17"
 scru64 = { version = "2.0", default-features = false, features = ["std"] }
 sled = { version = "0.34", features = ["compression"] }

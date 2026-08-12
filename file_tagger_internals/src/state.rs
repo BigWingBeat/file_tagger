@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{any::TypeId, collections::BTreeSet, path::PathBuf};
 
 use anymore::AnyDebug;
 use miette::{IntoDiagnostic, Report};
@@ -16,7 +16,7 @@ macro_rules! app_state {
             // the limitations of Xilem's data lensing. This is the only way for these common fields to be available to views
             // that want to lens down to a specific state variant.
             pub struct $variant {
-                next_state: Option<StateTransitionFunctions<Self>>,
+                next_state: Option<Box<dyn FnOnce(Self) -> ActiveView>>,
                 pub active_overlay: ActiveOverlay,
                 pub data: Box<dyn AnyDebug>,
                 $($v $field: $t),*
@@ -43,8 +43,8 @@ macro_rules! app_state {
                 where
                     Self: StateTransition<To, Parameters>,
                 {
-                    let transition_fns = Self::make_transition_fns(parameters);
-                    self.next_state = Some(transition_fns);
+                    let transition_fn = Self::make_transition_fn(parameters);
+                    self.next_state = Some(transition_fn);
                 }
             }
 
@@ -108,28 +108,46 @@ macro_rules! app_state {
                 }
             }
 
+            pub fn variant_type_id(&self) -> TypeId {
+                match self {
+                    $( $name::$variant(_) => TypeId::of::<$variant>() ),*
+                }
+            }
+
             /// Update self to the queued variant stored in `next_state`.
-            /// The parameters for `map_data` are the current variant, the next variant, and the current dyn data.
-            /// Both variants have their own dyn data fields set to `()` for the scope of `map_data`'s execution.
             /// Returns whether or not anything actually happened.
+            ///
+            /// `map_data` takes `TypeId`s, because taking `Discriminant`s is unhelpful, and taking the from/to `Self`s is
+            /// impossible. There's no way to get `Discriminant`s statically, so the only thing you could do with them is
+            /// check if this is an identity transition or not. As for taking the actual from/to enum values, we can't do that
+            /// because constructing the new state requires consuming the previous state by-value, making it impossible to
+            /// reference them both at the same time.
             pub fn update_to_next<F>(&mut self, map_data: F) -> bool
             where
-                F: FnOnce(&Self, &Self, Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
+                F: FnOnce(TypeId, TypeId, Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
             {
-                let transition = match self {
-                    $( $name::$variant(inner) => inner.next_state.take().map(|transition| transition.transition(inner)) ),*
-                };
+                let from = self.variant_type_id();
+                let mut transition_data = None;
 
-                transition.is_some_and(|(mut next, finalize)| {
-                    // We clobber the dyn data of this variant here, before it's passed into the finalizer, but it's fine (see
-                    // docs on `StateTransitionFunctions`)
-                    let old_data = self.set_data(());
-                    let new_data = map_data(self, &next, old_data);
-                    next.set_data_dyn(new_data);
-                    let previous = std::mem::replace(self, next);
-                    if let Err(e) = (finalize)(previous) {
-                        self.set_active_overlay(ActiveOverlay::Error(e));
+                replace_with::replace_with_or_abort(self, |state| {
+                    match state {
+                        $(
+                            $name::$variant(mut inner) if inner.next_state.is_some() => {
+                                transition_data = Some(std::mem::replace(&mut inner.data, Box::new(())));
+                                // This unwrap will never fail because of the `is_some()` check in the pattern guard.
+                                // We could remove it if it was possible to write the pattern guard as
+                                // `if let Some(transition) = inner.next_state.take()`, but sadly that doesn't compile.
+                                (inner.next_state.take().unwrap())(inner)
+                            }
+                        ),*
+                        _ => state
                     }
+                });
+
+                transition_data.is_some_and(|old_data| {
+                    let to = self.variant_type_id();
+                    let new_data = map_data(from, to, old_data);
+                    self.set_data_dyn(new_data);
                     true
                 })
             }
@@ -200,197 +218,139 @@ impl Default for UnrecoverableError {
     }
 }
 
-/// State transitions work in a deferred manner: they are queued during a frame, then applied later.
-/// This struct holds the functions that perform the state transition until they are actually used.
-///
-/// For some reason, `dyn FnOnce` seems to be an exception to the rule that trait objects can't move `self` by value.
-/// We rely on this to allow consuming parameter values passed in at the call site where a state transition is queued,
-/// by using closure variable capturing to magically store those parameters in the trait object, until they are consumed
-/// by-value when the `dyn FnOnce` is called.
-///
-/// Regarding `update_to_next()`:
-/// The state passed to `finalize_previous_state()` will have its dyn data set to `()`, as at that point
-/// the dyn data has already been moved into the new state (the one returned by `next_state()`)
-pub struct StateTransitionFunctions<From: ?Sized> {
-    next_state: Box<dyn FnOnce(&mut From) -> ActiveView>,
-    finalize_previous_state: Box<dyn FnOnce(ActiveView) -> Result<(), Report>>,
+pub trait StateTransition<To, Parameters = ()>: MakeStateTransition<To, Parameters> {
+    fn transition(self, parameters: Parameters) -> To;
 }
 
-impl<From: ?Sized> StateTransitionFunctions<From> {
-    fn new(
-        next_state: impl FnOnce(&mut From) -> ActiveView + 'static,
-        finalize_previous_state: impl FnOnce(ActiveView) -> Result<(), Report> + 'static,
-    ) -> Self {
-        Self {
-            next_state: Box::new(next_state),
-            finalize_previous_state: Box::new(finalize_previous_state),
-        }
-    }
+pub trait MakeStateTransition<To, Parameters>: Sized {
+    fn make_transition_fn(parameters: Parameters) -> Box<dyn FnOnce(Self) -> ActiveView>;
+}
 
-    #[expect(clippy::type_complexity, reason = "shut up")]
-    fn transition(
-        self,
-        from: &mut From,
-    ) -> (
-        ActiveView,
-        Box<dyn FnOnce(ActiveView) -> Result<(), Report>>,
-    ) {
-        ((self.next_state)(from), self.finalize_previous_state)
+/// The way this trait and `StateTransition` are defined and implemented is carefully structured, in order to prevent these
+/// bounds from becoming viral and spreading across all the other state-transition-related code.
+impl<From, To, Parameters> MakeStateTransition<To, Parameters> for From
+where
+    From: StateTransition<To, Parameters>,
+    To: Into<ActiveView>,
+    Parameters: 'static,
+{
+    /// State transitions work in a deferred manner: they are queued during a frame, then applied later. In each state type,
+    /// the `next_state` field stores the function that performs the state transition until it is actually used.
+    ///
+    /// For some reason, `dyn FnOnce` seems to be an exception to the rule that trait objects can't move `self` by value.
+    /// We rely on this to allow consuming parameter values passed in at the call site where a state transition is queued,
+    /// by using closure variable capturing to magically store those parameters in the trait object, until they are consumed
+    /// by-value when the `dyn FnOnce` is called during [`ActiveView::update_to_next`].
+    fn make_transition_fn(parameters: Parameters) -> Box<dyn FnOnce(Self) -> ActiveView> {
+        Box::new(|from| from.transition(parameters).into())
     }
 }
 
-pub trait StateTransition<To, Parameters> {
-    fn make_transition_fns(parameters: Parameters) -> StateTransitionFunctions<Self>;
-}
-
-macro_rules! impl_state_transition {
-    // No params & no finalizer
-    // Forwards to the following case ("No params") with an empty dummy closure for the finalizer (`|_| Ok(())`)
-    (next_state: fn(&mut $from:ty) -> $to:ty = $next_state:expr $(,)*) => {
-        impl_state_transition!(next_state: fn(&mut $from) -> $to = $next_state, finalize: fn($from) = |_| Ok(()));
-    };
-    // No params
-    // Forwards to the "base" case with `()` for the params and a wrapper closure for `next_state` that transparently handles it
-    (next_state: fn(&mut $from:ty) -> $to:ty = $next_state:expr, finalize: fn($from2:ty) = $finalize:expr $(,)*) => {
-        impl_state_transition!(next_state: fn(&mut $from, ()) -> $to = |from, _| ($next_state as fn(&mut $from) -> $to)(from), finalize: fn($from) = $finalize);
-    };
-    // No finalizer
-    // Forwards to the following ("base") case with an empty dummy closure for the finalizer (`|_| Ok(())`)
-    (next_state: fn(&mut $from:ty, $params:ty) -> $to:ty = $next_state:expr $(,)*) => {
-        impl_state_transition!(next_state: fn(&mut $from, $params) -> $to = $next_state, finalize: fn($from) = |_| Ok(()));
-    };
-    // "base" case, with params & a finalizer
-    (next_state: fn(&mut $from:ty, $params:ty) -> $to:ty = $next_state:expr, finalize: fn($from2:ty) = $finalize:expr $(,)*) => {
-        impl StateTransition<$to, $params> for $from {
-            // This is called mid-frame when a state transition is queued
-            fn make_transition_fns(parameters: $params) -> StateTransitionFunctions<Self> {
-                StateTransitionFunctions::new(
-                    // Captures the `parameters` variable so that it can be consumed later when the transition actually happens
-                    move |from| {
-                        // `.into()` here allows the closure to just directly return the inner variant type
-                        ($next_state as fn(&mut Self, $params) -> $to)(from, parameters).into()
-                    },
-                    |state| {
-                        let Ok(state) = state.try_into() else {
-                            // We can't get rid of this `unreachable!()` due to how the call site (`update_to_next`) works.
-                            // If we tried changing the outer parameter type from `ActiveView` to `$from`, we
-                            // would just end up having to move this `let else + unreachable!()` to the call site (as well as
-                            // make the call site more complicated in other ways too).
-                            // The fundamental issue is that borrowck makes it impossible to write a version of `std::mem::replace`
-                            // that looks like `fn<T>(&mut T, impl FnOnce(T) -> T)`, namely where the owned "dest" value is used
-                            // to calculate the new "src" value, instead of being returned.
-                            unreachable!("State changed variant before finalizer ran");
-                        };
-                        ($finalize as fn(Self) -> Result<(), Report>)(state)
-                    },
-                )
-            }
-        }
-    };
-}
-
-impl_state_transition! {
-    next_state: fn(&mut Launcher, DatabaseState) -> SearchMenu = |launcher, db| {
+impl StateTransition<SearchMenu, DatabaseState> for Launcher {
+    fn transition(self, db: DatabaseState) -> SearchMenu {
         SearchMenu::new(
-            launcher.persistent.clone(),
+            self.persistent.clone(),
             db,
-            launcher.dialog.clone(),
+            self.dialog.clone(),
             Default::default(),
         )
-    },
+    }
 }
 
 // Identity transitions are valid
-impl_state_transition!(
-    next_state: fn(&mut SearchMenu, DatabaseState) -> SearchMenu = |search_menu, db| {
+impl StateTransition<SearchMenu, DatabaseState> for SearchMenu {
+    fn transition(self, db: DatabaseState) -> SearchMenu {
         SearchMenu::new(
-            search_menu.persistent.clone(),
+            self.persistent.clone(),
             db,
-            search_menu.dialog.clone(),
+            self.dialog.clone(),
             Default::default(),
         )
-    },
-);
+    }
+}
 
-impl_state_transition!(
-    next_state: fn(&mut SearchMenu) -> SearchResults = |search_menu| {
+impl StateTransition<SearchResults> for SearchMenu {
+    fn transition(self, _: ()) -> SearchResults {
         SearchResults::new(
-            search_menu.persistent.clone(),
-            search_menu.database.clone(),
-            search_menu.search.clone(),
+            self.persistent.clone(),
+            self.database.clone(),
+            self.search.clone(),
             Default::default(),
         )
-    },
-);
+    }
+}
 
-impl_state_transition!(
-    next_state: fn(&mut SearchMenu) -> Edit = |search_menu| {
+impl StateTransition<Edit> for SearchMenu {
+    fn transition(self, _: ()) -> Edit {
         Edit::new(
-            search_menu.persistent.clone(),
-            search_menu.database.clone().into(),
+            self.persistent.clone(),
+            self.database.clone().into(),
             Default::default(),
             Default::default(),
             Default::default(),
         )
-    },
-);
+    }
+}
 
-/// Parameter for this state transition that is just used as a marker to indicate what should be done with the transaction in
-/// the finalizer. Using distinct parameter types allows these two transitions, with the same `from` and `to` states, to be
+/// Parameter for this state transition that is just used as a marker to indicate what should be done with the transaction.
+/// Using distinct parameter types allows these two transitions, with the same `from` and `to` states, to be
 /// distinguished at the type-system level.
 pub struct Commit;
 
-impl_state_transition!(
-    next_state: fn(&mut Edit, Commit) -> SearchMenu = |edit, _| {
-        SearchMenu::new(
-            edit.persistent.clone(),
-            edit.database.clone_db(),
+impl StateTransition<SearchMenu, Commit> for Edit {
+    fn transition(self, _: Commit) -> SearchMenu {
+        let (db, result) = self.database.commit();
+        let mut state = SearchMenu::new(
+            self.persistent.clone(),
+            db,
             Default::default(),
             Default::default(),
-        )
-    },
-    finalize: fn(Edit) = |edit| edit.database.commit().into_diagnostic()
-);
+        );
+        if let Err(e) = result.into_diagnostic() {
+            state.active_overlay = ActiveOverlay::Error(e);
+        }
+        state
+    }
+}
 
-/// Parameter for this state transition that is just used as a marker to indicate what should be done with the transaction in
-/// the finalizer. Using distinct parameter types allows these two transitions, with the same `from` and `to` states, to be
+/// Parameter for this state transition that is just used as a marker to indicate what should be done with the transaction.
+/// Using distinct parameter types allows these two transitions, with the same `from` and `to` states, to be
 /// distinguished at the type-system level.
 pub struct Rollback;
 
-impl_state_transition!(
-    next_state: fn(&mut Edit, Rollback) -> SearchMenu = |edit, _| {
+impl StateTransition<SearchMenu, Rollback> for Edit {
+    fn transition(self, _: Rollback) -> SearchMenu {
         SearchMenu::new(
-            edit.persistent.clone(),
-            edit.database.clone_db(),
+            self.persistent.clone(),
+            self.database.rollback(),
             Default::default(),
             Default::default(),
         )
-    },
-    finalize: fn(Edit) = |edit| { edit.database.rollback(); Ok(()) }
-);
+    }
+}
 
-impl_state_transition!(
-    next_state: fn(&mut SearchResults) -> SearchResults = |search_results| {
+impl StateTransition<SearchResults> for SearchResults {
+    fn transition(self, _: ()) -> SearchResults {
         SearchResults::new(
-            search_results.persistent.clone(),
-            search_results.database.clone(),
-            search_results.search.clone(),
+            self.persistent.clone(),
+            self.database.clone(),
+            self.search.clone(),
             Default::default(),
         )
-    },
-);
+    }
+}
 
-impl_state_transition!(
-    next_state: fn(&mut SearchResults) -> Edit = |search_results| {
+impl StateTransition<Edit> for SearchResults {
+    fn transition(self, _: ()) -> Edit {
         Edit::new(
-            search_results.persistent.clone(),
-            search_results.database.clone().into(),
+            self.persistent.clone(),
+            self.database.clone().into(),
             Default::default(),
             Default::default(),
             Default::default(),
         )
-    },
-);
+    }
+}
 
 #[derive(Default)]
 pub enum ActiveOverlay {

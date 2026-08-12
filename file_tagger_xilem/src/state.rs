@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use file_tagger_internals::{
     ActiveOverlay, ActiveView, Edit, Launcher, SearchMenu, SearchResults, UnrecoverableError,
 };
@@ -27,7 +29,7 @@ pub trait AppData {
     fn data(&self) -> &Self::Data;
     fn data_mut(&mut self) -> &mut Self::Data;
 
-    fn map_data<To>(&self, _to: &To, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
+    fn map_data<To>(data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug>
     where
         To: AppData,
         Self::Data: Into<To::Data>,
@@ -75,15 +77,21 @@ macro_rules! generate_map_data_fn {
         generate_map_data_fn!(@1 [$(($variant1, $variant2)),*] | $unreachable | $);
     };
     (@1 [$(($variant1:ident, ($($variant2:ident),*))),*] | ($(($from:ident, $to:ident)),*) | $d:tt) => {
-        fn map_data(from: &ActiveView, to: &ActiveView, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
+        fn map_data(from: TypeId, to: TypeId, data: Box<dyn AnyDebug>) -> Box<dyn AnyDebug> {
             macro_rules! generated_macro_to_match_unreachable_transitions {
-                $(($d from_inner:ident $d to_inner:ident $from $to) => { unreachable!() };)*
-                ($d from_inner:ident $d to_inner:ident $d from:ident $d to:ident) => { $from_inner.map_data($to_inner, data) };
+                $(($from $to) => { unreachable!() };)*
+                ($d from:ident $d to:ident) => { <$d from as AppData>::map_data::<$d to>(data) };
             }
 
-            match (from, to) {
-                $($((ActiveView::$variant1(_from), ActiveView::$variant2(_to)) => { generated_macro_to_match_unreachable_transitions!(_from _to $variant1 $variant2) } )*)*
-            }
+            $(
+                $(
+                    if from == TypeId::of::<$variant1>() && to == TypeId::of::<$variant2>() {
+                        return generated_macro_to_match_unreachable_transitions!($variant1 $variant2);
+                    }
+                )*
+            )*
+
+            unreachable!("You probably forgot to put a state type in the variants list")
         }
     }
 }

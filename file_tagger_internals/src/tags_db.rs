@@ -189,10 +189,6 @@ impl From<DatabaseState> for ActiveTransactionDatabaseState {
 }
 
 impl ActiveTransactionDatabaseState {
-    pub fn clone_db(&self) -> DatabaseState {
-        self.db.clone()
-    }
-
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     pub fn generate_entry(&mut self) -> Entry {
         self.db.generate_entry()
@@ -213,12 +209,13 @@ impl ActiveTransactionDatabaseState {
             .map(|kv| kv.map(|(k, _)| k))
     }
 
-    pub fn commit(self) -> crate::database::Result<()> {
-        self.transaction.commit()
+    pub fn commit(self) -> (DatabaseState, crate::database::Result<()>) {
+        (self.db, self.transaction.commit())
     }
 
-    pub fn rollback(self) {
-        self.transaction.rollback()
+    pub fn rollback(self) -> DatabaseState {
+        self.transaction.rollback();
+        self.db
     }
 }
 
