@@ -405,13 +405,16 @@ pub enum ActiveOverlay {
 
 /// `self` must be passed explicitly as its own ident (`this`) due to how macros work
 macro_rules! set_err {
-    ($this:ident, $result:expr $(,)?) => {{
+    ($this:ident, $result:expr $(,)?) => {
+        set_err!($this, $result, ())
+    };
+    ($this:ident, $result:expr, $return:expr $(,)?) => {{
         let result: Result<_, Report> = $result;
         match result {
             Ok(ok) => ok,
             Err(e) => {
                 $this.active_overlay = ActiveOverlay::Error(e);
-                return;
+                return $return;
             }
         }
     }};
@@ -796,12 +799,6 @@ impl Edit {
     pub fn tag_prefix_search_results(&mut self) -> impl Iterator<Item = Tag> {
         self.database
             .search_tags_names_by_prefix(&self.tag_search_bar_state)
-            .map_while(|result| match result.into_diagnostic() {
-                Ok(tag) => Some(tag),
-                Err(e) => {
-                    self.active_overlay = ActiveOverlay::Error(e);
-                    None
-                }
-            })
+            .map_while(|result| Some(set_err!(self, result.into_diagnostic(), None)))
     }
 }
