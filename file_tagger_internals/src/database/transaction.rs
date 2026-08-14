@@ -102,7 +102,11 @@ impl Drop for Transaction {
     fn drop(&mut self) {
         // Failsafe in case the transaction was dropped without being finalized
         let _ = self.sender.send(TransAction::Rollback);
-        self.thread_handle.take().unwrap().join().unwrap();
+        self.thread_handle
+            .take()
+            .unwrap()
+            .join()
+            .expect("Transaction thread panicked");
     }
 }
 
@@ -123,7 +127,9 @@ pub fn initialize_transaction(db: Database) -> Transaction {
                         match action {
                             $(
                                 TransAction::$variant(ref table, $($field),*) => {
-                                    sender.send(TransReaction::$variant(transaction.$fn(table, $($field),*))).unwrap();
+                                    sender
+                                        .send(TransReaction::$variant(transaction.$fn(table, $($field),*)))
+                                        .expect("Main thread disconnected before send");
                                 }
                             ),*
                             TransAction::Commit => return transaction.commit(),
@@ -146,8 +152,12 @@ pub fn initialize_transaction(db: Database) -> Transaction {
         });
         // The results of all non-finalizing actions get sent over the channel, so `Ok` and `Err` here are always from a `Commit`
         match result {
-            TransactionResult::Ok(()) => sender.send(TransReaction::Commit(Ok(()))).unwrap(),
-            TransactionResult::Err(e) => sender.send(TransReaction::Commit(Err(e))).unwrap(),
+            TransactionResult::Ok(()) => sender
+                .send(TransReaction::Commit(Ok(())))
+                .expect("Main thread disconnected before send"),
+            TransactionResult::Err(e) => sender
+                .send(TransReaction::Commit(Err(e)))
+                .expect("Main thread disconnected before send"),
             TransactionResult::Rollback => {}
         }
     });
