@@ -16,7 +16,7 @@ macro_rules! app_state {
             // the limitations of Xilem's data lensing. This is the only way for these common fields to be available to views
             // that want to lens down to a specific state variant.
             pub struct $variant {
-                next_state: Option<Box<dyn FnOnce(Self) -> ActiveView>>,
+                next_state: Option<Box<dyn FnOnce(Self) -> $name>>,
                 pub active_overlay: ActiveOverlay,
                 pub data: Box<dyn AnyDebug>,
                 $($v $field: $t),*
@@ -389,6 +389,19 @@ impl ActiveView {
                 ..UnrecoverableError::new_with(data)
             }
             .into(),
+        }
+    }
+
+    pub fn exit_error_overlay(&mut self) {
+        let ActiveOverlay::Error(_) = self.active_overlay() else {
+            eprintln!("exit_error_overlay called but not in error overlay");
+            return;
+        };
+
+        if let ActiveView::UnrecoverableError(_) = self {
+            std::process::exit(1);
+        } else {
+            self.set_active_overlay(ActiveOverlay::None);
         }
     }
 }
