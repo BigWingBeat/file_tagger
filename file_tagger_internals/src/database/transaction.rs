@@ -41,15 +41,25 @@ pub struct Transaction {
     thread_handle: Option<JoinHandle<()>>,
 }
 
-impl Transaction {
-    pub fn get(&self, table: &UntypedTable, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
-        self.sender
-            .send(TransAction::Get(table.clone(), key.into()))
-            .unwrap();
-        let TransReaction::Get(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
+macro_rules! transaction_method {
+    ($self:ident, $operation:ident, $($params:expr),* $(,)*) => {
+        transaction_method!($self, $operation = TransAction::$operation($($params),*))
+    };
+    ($self:ident, $operation:ident) => {
+        transaction_method!($self, $operation = TransAction::$operation)
+    };
+    ($self:ident, $operation:ident = $action:expr) => {{
+        $self.sender.send($action).expect("Transaction thread disconnected before send");
+        let TransReaction::$operation(result) = $self.receiver.recv().expect("Transaction thread disconnected before recv") else {
+            unreachable!("Transaction thread returned incorrect variant");
         };
         result
+    }};
+}
+
+impl Transaction {
+    pub fn get(&self, table: &UntypedTable, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
+        transaction_method!(self, Get, table.clone(), key.into())
     }
 
     pub fn insert(
@@ -58,65 +68,33 @@ impl Transaction {
         key: impl Into<Buffer>,
         value: impl Into<Buffer>,
     ) -> Result<()> {
-        self.sender
-            .send(TransAction::Insert(table.clone(), key.into(), value.into()))
-            .unwrap();
-        let TransReaction::Insert(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
+        transaction_method!(self, Insert, table.clone(), key.into(), value.into())
     }
 
     pub fn remove(&mut self, table: &UntypedTable, key: impl Into<Buffer>) -> Result<()> {
-        self.sender
-            .send(TransAction::Remove(table.clone(), key.into()))
-            .unwrap();
-        let TransReaction::Remove(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
+        transaction_method!(self, Remove, table.clone(), key.into())
     }
 
     pub fn first_kv(&self, table: &UntypedTable) -> Result<Option<(Buffer, Buffer)>> {
-        self.sender
-            .send(TransAction::FirstKv(table.clone()))
-            .unwrap();
-        let TransReaction::FirstKv(result) = self.receiver.recv().unwrap() else {
-            unreachable!()
-        };
-        result
+        transaction_method!(self, FirstKv, table.clone())
     }
 
     pub fn last_kv(&self, table: &UntypedTable) -> Result<Option<(Buffer, Buffer)>> {
-        self.sender
-            .send(TransAction::LastKv(table.clone()))
-            .unwrap();
-        let TransReaction::LastKv(result) = self.receiver.recv().unwrap() else {
-            unreachable!()
-        };
-        result
+        transaction_method!(self, LastKv, table.clone())
     }
 
     pub fn prefix(&self, table: &UntypedTable, prefix: impl Into<Buffer>) -> UntypedIter {
-        self.sender
-            .send(TransAction::Prefix(table.clone(), prefix.into()))
-            .unwrap();
-        let TransReaction::Prefix(iter) = self.receiver.recv().unwrap() else {
-            unreachable!()
-        };
-        iter
+        transaction_method!(self, Prefix, table.clone(), prefix.into())
     }
 
     pub fn commit(self) -> Result<()> {
-        self.sender.send(TransAction::Commit).unwrap();
-        let TransReaction::Commit(result) = self.receiver.recv().unwrap() else {
-            unreachable!();
-        };
-        result
+        transaction_method!(self, Commit)
     }
 
     pub fn rollback(self) {
-        self.sender.send(TransAction::Rollback).unwrap();
+        self.sender
+            .send(TransAction::Rollback)
+            .expect("Transaction thread disconnected before send");
     }
 }
 
@@ -140,38 +118,28 @@ pub fn initialize_transaction(db: Database) -> Transaction {
             // This must always send a `TransReaction` back after each received `TransAction`, otherwise it will deadlock
             // (Except for `rollback` which is infallible and thus has no result to return)
             while let Ok(action) = receiver.recv() {
-                match action {
-                    TransAction::Get(table, key) => {
-                        sender
-                            .send(TransReaction::Get(transaction.get(&table, key)))
-                            .unwrap();
-                    }
-                    TransAction::Insert(table, key, value) => {
-                        sender
-                            .send(TransReaction::Insert(
-                                transaction.insert(&table, key, value),
-                            ))
-                            .unwrap();
-                    }
-                    TransAction::Remove(table, key) => {
-                        sender
-                            .send(TransReaction::Remove(transaction.remove(&table, key)))
-                            .unwrap();
-                    }
-                    TransAction::FirstKv(table) => sender
-                        .send(TransReaction::FirstKv(transaction.first_kv(&table)))
-                        .unwrap(),
-                    TransAction::LastKv(table) => sender
-                        .send(TransReaction::LastKv(transaction.last_kv(&table)))
-                        .unwrap(),
-                    TransAction::Prefix(table, prefix) => {
-                        sender
-                            .send(TransReaction::Prefix(transaction.prefix(&table, prefix)))
-                            .unwrap();
-                    }
-                    TransAction::Commit => return transaction.commit(),
-                    TransAction::Rollback => break,
+                macro_rules! transaction_match {
+                    ($($variant:ident($($field:ident),*) = $fn:ident),* $(,)*) => {
+                        match action {
+                            $(
+                                TransAction::$variant(ref table, $($field),*) => {
+                                    sender.send(TransReaction::$variant(transaction.$fn(table, $($field),*))).unwrap();
+                                }
+                            ),*
+                            TransAction::Commit => return transaction.commit(),
+                            TransAction::Rollback => break,
+                        }
+                    };
                 }
+
+                transaction_match!(
+                    Get(key) = get,
+                    Insert(key, value) = insert,
+                    Remove(key) = remove,
+                    FirstKv() = first_kv,
+                    LastKv() = last_kv,
+                    Prefix(prefix) = prefix,
+                )
             }
             // Either we explicitly received a `Rollback` action, or the sender was disconnected
             Ok(transaction.rollback())
