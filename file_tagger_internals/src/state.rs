@@ -284,7 +284,7 @@ impl StateTransition<Edit> for SearchMenu {
     fn transition(self, _: ()) -> Edit {
         Edit::new(
             self.persistent.clone(),
-            self.database.clone().into(),
+            self.database.initialize_transaction(),
             Default::default(),
             Default::default(),
             Default::default(),
@@ -344,7 +344,7 @@ impl StateTransition<Edit> for SearchResults {
     fn transition(self, _: ()) -> Edit {
         Edit::new(
             self.persistent.clone(),
-            self.database.clone().into(),
+            self.database.initialize_transaction(),
             Default::default(),
             Default::default(),
             Default::default(),

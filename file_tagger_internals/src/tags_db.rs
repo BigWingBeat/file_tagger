@@ -59,8 +59,12 @@ impl DatabaseState {
         self.database.generate_entry()
     }
 
-    pub fn initialize_transaction(&self) -> TransactionApi {
-        self.database.initialize_transaction()
+    pub fn initialize_transaction(self) -> ActiveTransactionDatabaseState {
+        let transaction = self.database.initialize_transaction();
+        ActiveTransactionDatabaseState {
+            db: self,
+            transaction,
+        }
     }
 
     pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DbError<Tag, Entry>> {
@@ -179,13 +183,6 @@ impl TagsDatabase {
 pub struct ActiveTransactionDatabaseState {
     db: DatabaseState,
     transaction: TransactionApi,
-}
-
-impl From<DatabaseState> for ActiveTransactionDatabaseState {
-    fn from(db: DatabaseState) -> Self {
-        let transaction = db.initialize_transaction();
-        Self { db, transaction }
-    }
 }
 
 impl ActiveTransactionDatabaseState {
