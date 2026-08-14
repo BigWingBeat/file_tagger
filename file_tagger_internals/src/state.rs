@@ -499,7 +499,7 @@ impl LauncherState for Launcher {
     /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
     /// Queues the [`SearchMenu`] state.
     fn create_folder_with_database(&mut self, folder: PathBuf) {
-        std::fs::create_dir(&folder).unwrap();
+        set_err!(self, std::fs::create_dir(&folder).into_diagnostic());
         self.open_database(folder);
     }
 }
@@ -567,7 +567,7 @@ impl LauncherState for SearchMenu {
     /// The user is presented with a "save file dialog", and a new folder, plus a database in that folder, are created accordingly
     /// Queues the [`SearchMenu`] state.
     fn create_folder_with_database(&mut self, folder: PathBuf) {
-        std::fs::create_dir(&folder).unwrap();
+        set_err!(self, std::fs::create_dir(&folder).into_diagnostic());
         self.open_database(folder);
     }
 }
