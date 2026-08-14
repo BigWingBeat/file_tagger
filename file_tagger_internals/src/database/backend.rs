@@ -85,7 +85,8 @@ pub trait TransactionImpl: Sized {
     ) -> Result<()>;
 
     fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()>;
-
+    fn first_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
+    fn last_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter;
 
     fn commit(self) -> Result<FinalizeTransaction> {

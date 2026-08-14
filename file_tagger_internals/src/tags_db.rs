@@ -11,12 +11,11 @@ use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec, id::RangeError};
 use thiserror::Error;
 
 use crate::{
-    DB_FOLDER_NAME, TransactionApi,
+    DB_FOLDER_NAME, Transaction,
     app_data::RecentFolder,
-    database::{Buffer, Database, DbError, Table},
-    initialize_transaction,
+    database::{Buffer, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table},
     serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Reader, Serde, SizeHint, SmallVec,
+        AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Reader, SizeHint, SmallVec,
         UnexpectedEof,
     },
 };
@@ -60,32 +59,31 @@ impl DatabaseState {
     }
 
     pub fn initialize_transaction(self) -> ActiveTransactionDatabaseState {
-        let transaction = self.database.initialize_transaction();
         ActiveTransactionDatabaseState {
-            db: self,
-            transaction,
+            database: self.database.initialize_transaction(),
+            folder: self.folder,
         }
     }
 
-    pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DbError<Tag, Entry>> {
+    pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
         self.database.tag_entry_by_name(tag)
     }
 
-    pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DbError<Tag, Entry>> {
+    pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
         self.database.tag_exists(tag)
     }
 
     pub fn search_tags_names_by_prefix(
         &self,
-        prefix: impl AsRef<[u8]>,
-    ) -> impl Iterator<Item = Result<Tag, DbError<Tag, Entry>>> {
+        prefix: impl Into<Buffer>,
+    ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
         self.database.search_tags_names_by_prefix(prefix)
     }
 }
 
 #[derive(Clone)]
-pub struct TagsDatabase {
-    database: Database,
+pub struct TagsDatabase<Transaction = NoTransaction> {
+    database: Database<Transaction>,
     /// Lookup which entries tags are applied to
     ///
     /// Key: composite (tag name + tag data)
@@ -115,14 +113,15 @@ pub struct TagsDatabase {
     generator: Arc<Mutex<Scru64Generator>>,
 }
 
-impl TagsDatabase {
-    fn open_tables(database: Database) -> miette::Result<Self> {
-        let entries_by_tag = Table::open(&database, "EntriesByTag").into_diagnostic()?;
-        let tags_by_entry = Table::open(&database, "TagsByEntry").into_diagnostic()?;
-        let tag_values = Table::open(&database, "TagValues").into_diagnostic()?;
-        let tag_entries = Table::open(&database, "TagEntries").into_diagnostic()?;
+/// Transaction-agnostic methods
+impl<T: DbApi> TagsDatabase<T> {
+    fn open_tables(mut database: Database<T>) -> miette::Result<Self> {
+        let entries_by_tag = database.open_table("EntriesByTag").into_diagnostic()?;
+        let tags_by_entry = database.open_table("TagsByEntry").into_diagnostic()?;
+        let tag_values = database.open_table("TagValues").into_diagnostic()?;
+        let tag_entries = database.open_table("TagEntries").into_diagnostic()?;
         let generator = Arc::new(Mutex::new(
-            init_or_resume_generator(&tags_by_entry).into_diagnostic()?,
+            init_or_resume_generator(&database, &tags_by_entry).into_diagnostic()?,
         ));
         Ok(Self {
             database,
@@ -134,18 +133,28 @@ impl TagsDatabase {
         })
     }
 
-    fn open(path: impl AsRef<Path>) -> miette::Result<Self> {
-        crate::database::open(path)
-            .into_diagnostic()
-            .and_then(Self::open_tables)
+    fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
+        self.database.get(&self.tag_entries, tag)
     }
 
-    fn open_temporary() -> miette::Result<Self> {
-        crate::database::open_temporary()
-            .into_diagnostic()
-            .and_then(Self::open_tables)
+    fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
+        self.database
+            .get(&self.tag_entries, tag)
+            .map(|entry| entry.is_some())
     }
 
+    fn search_tags_names_by_prefix(
+        &self,
+        prefix: impl Into<Buffer>,
+    ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
+        self.database
+            .prefix(&self.tag_entries, prefix)
+            .map(|kv| kv.map(|(k, _)| k))
+    }
+}
+
+/// Ditto
+impl<T> TagsDatabase<T> {
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     fn generate_entry(&mut self) -> Entry {
         // See: `scru64::new_sync()`
@@ -159,60 +168,101 @@ impl TagsDatabase {
             }
         }
     }
+}
 
-    fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DbError<Tag, Entry>> {
-        self.tag_entries.get(tag)
+/// No transaction methods
+impl TagsDatabase {
+    fn open(path: impl AsRef<Path>) -> miette::Result<Self> {
+        Database::open(path)
+            .into_diagnostic()
+            .and_then(Self::open_tables)
     }
 
-    fn tag_exists(&self, tag: &Tag) -> Result<bool, DbError<Tag, Entry>> {
-        self.tag_entries.get(tag).map(|entry| entry.is_some())
+    fn open_temporary() -> miette::Result<Self> {
+        Database::open_temporary()
+            .into_diagnostic()
+            .and_then(Self::open_tables)
     }
 
-    fn search_tags_names_by_prefix(
-        &self,
-        prefix: impl AsRef<[u8]>,
-    ) -> impl Iterator<Item = Result<Tag, DbError<Tag, Entry>>> {
-        self.tag_entries.prefix(prefix).map(|kv| kv.map(|(k, _)| k))
+    fn initialize_transaction(self) -> TagsDatabase<Transaction> {
+        TagsDatabase {
+            database: self.database.initialize_transaction(),
+            entries_by_tag: self.entries_by_tag,
+            tags_by_entry: self.tags_by_entry,
+            tag_values: self.tag_values,
+            tag_entries: self.tag_entries,
+            generator: self.generator,
+        }
+    }
+}
+
+/// Yes transaction methods
+impl TagsDatabase<Transaction> {
+    fn commit(self) -> (TagsDatabase, crate::database::Result<()>) {
+        let (database, result) = self.database.commit();
+        (
+            TagsDatabase {
+                database,
+                entries_by_tag: self.entries_by_tag,
+                tags_by_entry: self.tags_by_entry,
+                tag_values: self.tag_values,
+                tag_entries: self.tag_entries,
+                generator: self.generator,
+            },
+            result,
+        )
     }
 
-    pub fn initialize_transaction(&self) -> TransactionApi {
-        initialize_transaction(self.database.clone())
+    fn rollback(self) -> TagsDatabase {
+        TagsDatabase {
+            database: self.database.rollback(),
+            entries_by_tag: self.entries_by_tag,
+            tags_by_entry: self.tags_by_entry,
+            tag_values: self.tag_values,
+            tag_entries: self.tag_entries,
+            generator: self.generator,
+        }
     }
 }
 
 pub struct ActiveTransactionDatabaseState {
-    db: DatabaseState,
-    transaction: TransactionApi,
+    database: TagsDatabase<Transaction>,
+    folder: RecentFolder,
 }
 
 impl ActiveTransactionDatabaseState {
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     pub fn generate_entry(&mut self) -> Entry {
-        self.db.generate_entry()
+        self.database.generate_entry()
     }
 
-    pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DbError<Tag, Entry>> {
-        self.transaction
-            .get(&self.db.database.tag_entries, tag)
-            .map(|entry| entry.is_some())
+    pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
+        self.database.tag_exists(tag)
     }
 
     pub fn search_tags_names_by_prefix(
         &self,
         prefix: impl Into<Buffer>,
-    ) -> impl Iterator<Item = Result<Tag, DbError<Tag, Entry>>> {
-        self.transaction
-            .prefix(&self.db.database.tag_entries, prefix)
-            .map(|kv| kv.map(|(k, _)| k))
+    ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
+        self.database.search_tags_names_by_prefix(prefix)
     }
 
     pub fn commit(self) -> (DatabaseState, crate::database::Result<()>) {
-        (self.db, self.transaction.commit())
+        let (database, result) = self.database.commit();
+        (
+            DatabaseState {
+                database,
+                folder: self.folder,
+            },
+            result,
+        )
     }
 
     pub fn rollback(self) -> DatabaseState {
-        self.transaction.rollback();
-        self.db
+        DatabaseState {
+            database: self.database.rollback(),
+            folder: self.folder,
+        }
     }
 }
 
@@ -320,9 +370,10 @@ impl Display for Tag {
     }
 }
 
-fn init_or_resume_generator<Value: Serde>(
+fn init_or_resume_generator<T: DbApi, Value: FromBytes>(
+    db: &Database<T>,
     table: &Table<Entry, Value>,
-) -> Result<Scru64Generator, DbError<Entry, Value>> {
+) -> Result<Scru64Generator, DeserKvError<Entry, Value>> {
     // Scru64 ids are always 64 bits. This parameter controls how many of those bits are allocated to a custom value we control.
     // This is useful for distributed systems with multiple nodes using the same ID space, but we are just an offline, local app,
     // so we don't need this. Instead, we set this to the smallest allowed number of bits (1), which maximizes the number of bits
@@ -335,7 +386,7 @@ fn init_or_resume_generator<Value: Serde>(
         Err(_) => unreachable!(),
     };
 
-    table.last_kv().map(|kv| {
+    db.last_kv(table).map(|kv| {
         Scru64Generator::new(kv.map_or(DEFAULT_NODE_ID, |(latest_id, _)| {
             // This only errors if the second parameter has a bad value, which will never happen because it's a known-good literal
             NodeSpec::with_node_prev(latest_id.0, NODE_ID_SIZE).unwrap()

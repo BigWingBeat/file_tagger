@@ -4,8 +4,8 @@ use std::{
 };
 
 use super::{
-    Buffer, Database, DatabaseImpl, Result, TransactionImpl, TransactionResult, UntypedIter,
-    UntypedTable,
+    Buffer, Result, UntypedIter, UntypedTable,
+    backend::{Database, DatabaseImpl, TransactionImpl, TransactionResult},
 };
 
 /// This is the message type passed over a channel to allow the GUI to control the transaction
@@ -13,6 +13,8 @@ enum TransAction {
     Get(UntypedTable, Buffer),
     Insert(UntypedTable, Buffer, Buffer),
     Remove(UntypedTable, Buffer),
+    FirstKv(UntypedTable),
+    LastKv(UntypedTable),
     Prefix(UntypedTable, Buffer),
     Commit,
     Rollback,
@@ -24,6 +26,8 @@ enum TransReaction {
     Get(Result<Option<Buffer>>),
     Insert(Result<()>),
     Remove(Result<()>),
+    FirstKv(Result<Option<(Buffer, Buffer)>>),
+    LastKv(Result<Option<(Buffer, Buffer)>>),
     Prefix(UntypedIter),
     Commit(Result<()>),
 }
@@ -31,13 +35,13 @@ enum TransReaction {
 /// Talks to the transaction thread
 /// Doing the transaction stuff on another thread is necessary to workaround quirks in the backend APIs
 #[derive(Debug)]
-pub struct TransactionApi {
+pub struct Transaction {
     sender: SyncSender<TransAction>,
     receiver: Receiver<TransReaction>,
     thread_handle: Option<JoinHandle<()>>,
 }
 
-impl TransactionApi {
+impl Transaction {
     pub fn get(&self, table: &UntypedTable, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
         self.sender
             .send(TransAction::Get(table.clone(), key.into()))
@@ -73,6 +77,26 @@ impl TransactionApi {
         result
     }
 
+    pub fn first_kv(&self, table: &UntypedTable) -> Result<Option<(Buffer, Buffer)>> {
+        self.sender
+            .send(TransAction::FirstKv(table.clone()))
+            .unwrap();
+        let TransReaction::FirstKv(result) = self.receiver.recv().unwrap() else {
+            unreachable!()
+        };
+        result
+    }
+
+    pub fn last_kv(&self, table: &UntypedTable) -> Result<Option<(Buffer, Buffer)>> {
+        self.sender
+            .send(TransAction::LastKv(table.clone()))
+            .unwrap();
+        let TransReaction::LastKv(result) = self.receiver.recv().unwrap() else {
+            unreachable!()
+        };
+        result
+    }
+
     pub fn prefix(&self, table: &UntypedTable, prefix: impl Into<Buffer>) -> UntypedIter {
         self.sender
             .send(TransAction::Prefix(table.clone(), prefix.into()))
@@ -96,7 +120,7 @@ impl TransactionApi {
     }
 }
 
-impl Drop for TransactionApi {
+impl Drop for Transaction {
     fn drop(&mut self) {
         // Failsafe in case the transaction was dropped without being finalized
         let _ = self.sender.send(TransAction::Rollback);
@@ -104,7 +128,7 @@ impl Drop for TransactionApi {
     }
 }
 
-pub fn initialize_transaction(db: Database) -> TransactionApi {
+pub fn initialize_transaction(db: Database) -> Transaction {
     // Capacities of 0 because we always wait to get a result back right after sending an action,
     // so it's not possible for multiple messages to get queued up on either channel
     let (action_sender, action_receiver) = std::sync::mpsc::sync_channel(0);
@@ -134,6 +158,12 @@ pub fn initialize_transaction(db: Database) -> TransactionApi {
                             .send(TransReaction::Remove(transaction.remove(&table, key)))
                             .unwrap();
                     }
+                    TransAction::FirstKv(table) => sender
+                        .send(TransReaction::FirstKv(transaction.first_kv(&table)))
+                        .unwrap(),
+                    TransAction::LastKv(table) => sender
+                        .send(TransReaction::LastKv(transaction.last_kv(&table)))
+                        .unwrap(),
                     TransAction::Prefix(table, prefix) => {
                         sender
                             .send(TransReaction::Prefix(transaction.prefix(&table, prefix)))
@@ -154,7 +184,7 @@ pub fn initialize_transaction(db: Database) -> TransactionApi {
         }
     });
 
-    TransactionApi {
+    Transaction {
         sender: action_sender,
         receiver: reaction_receiver,
         thread_handle: Some(thread),

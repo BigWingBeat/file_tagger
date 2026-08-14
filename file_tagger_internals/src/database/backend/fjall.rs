@@ -205,6 +205,20 @@ impl super::TransactionImpl for Transaction<'_> {
         Ok(())
     }
 
+    fn first_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>> {
+        self.0
+            .first_key_value(&table.0)
+            .map(|guard| guard.into_inner())
+            .transpose()
+    }
+
+    fn last_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>> {
+        self.0
+            .last_key_value(&table.0)
+            .map(|guard| guard.into_inner())
+            .transpose()
+    }
+
     fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter {
         Iter(self.0.prefix(&table.0, prefix))
     }

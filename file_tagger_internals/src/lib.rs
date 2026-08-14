@@ -9,8 +9,7 @@ pub use crate::{
     app_data::{AppData, RecentFolder},
     database::{
         Buffer, Error as DatabaseError, FinalizeTransaction, Result as DatabaseResult, Table,
-        Transaction, TransactionApi, TransactionImpl, TransactionResult, UntypedTable,
-        UntypedTransactionApi, initialize_transaction,
+        Transaction, UntypedTable,
     },
     files::{create_folder_and_db, import_files, open_folder_as_db},
     state::{

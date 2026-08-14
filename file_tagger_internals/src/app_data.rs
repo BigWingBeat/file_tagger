@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::{
     APP_DATA_FOLDER_NAME,
-    database::{Database, Table},
+    database::{Database, DbApi, Table},
     serde::{AsBytes, Bytes, FromBytes, InlineStrVec, Reader, SizeHint},
 };
 
@@ -48,15 +48,15 @@ impl AppData {
     pub fn open() -> miette::Result<Self> {
         let mut path = dirs::data_local_dir().unwrap();
         path.push(APP_DATA_FOLDER_NAME);
-        crate::database::open(path)
+        Database::open(path)
             .into_diagnostic()
             .and_then(Self::open_tables)
     }
 
-    fn open_tables(database: Database) -> miette::Result<Self> {
-        let table = Table::open(&database, "AppData").into_diagnostic()?;
-        let recent_folders = table
-            .get(&DataKey::RecentFolders)
+    fn open_tables(mut database: Database) -> miette::Result<Self> {
+        let table = database.open_table("AppData").into_diagnostic()?;
+        let recent_folders = database
+            .get(&table, &DataKey::RecentFolders)
             .map(|result| {
                 Box::new(
                     result
@@ -109,20 +109,21 @@ impl AppData {
                 }
             }
         };
-        self.write_recent_folders().map(|_| folder)
-    }
 
-    pub fn recent_folders(&self) -> &[RecentFolder] {
-        &self.recent_folders
-    }
-
-    fn write_recent_folders(&self) -> crate::database::Result<()> {
+        // Write the change back to the DB
         let buffer = self
             .recent_folders
             .iter()
             .filter_map(|folder| folder.path.to_str())
             .collect();
-        self.table.insert(&DataKey::RecentFolders, &buffer)
+
+        self.database
+            .insert(&self.table, &DataKey::RecentFolders, &buffer)
+            .map(|_| folder)
+    }
+
+    pub fn recent_folders(&self) -> &[RecentFolder] {
+        &self.recent_folders
     }
 }
 
