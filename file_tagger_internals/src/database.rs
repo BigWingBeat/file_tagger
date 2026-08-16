@@ -72,7 +72,7 @@ pub trait DbApi {
     /// Insert a key to a new value, overwriting any existing value.
     fn insert<Key: AsBytes, Value: AsBytes>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
         value: &Value,
     ) -> backend::Result<()>;
@@ -80,7 +80,7 @@ pub trait DbApi {
     /// Remove a key and its associated value from the table.
     fn remove<Key: AsBytes, Value>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
     ) -> backend::Result<()>;
 
@@ -121,7 +121,7 @@ impl DbApi for NoTransaction {
 
     fn insert<Key: AsBytes, Value: AsBytes>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
         value: &Value,
     ) -> backend::Result<()> {
@@ -130,7 +130,7 @@ impl DbApi for NoTransaction {
 
     fn remove<Key: AsBytes, Value>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
     ) -> backend::Result<()> {
         table.0.remove(key.as_bytes())
@@ -170,19 +170,23 @@ impl DbApi for Transaction {
 
     fn insert<Key: AsBytes, Value: AsBytes>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
         value: &Value,
     ) -> backend::Result<()> {
-        self.insert(&table.0, key.as_bytes().as_ref(), value.as_bytes().as_ref())
+        self.insert(
+            &mut table.0,
+            key.as_bytes().as_ref(),
+            value.as_bytes().as_ref(),
+        )
     }
 
     fn remove<Key: AsBytes, Value>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
     ) -> backend::Result<()> {
-        self.remove(&table.0, key.as_bytes().as_ref())
+        self.remove(&mut table.0, key.as_bytes().as_ref())
     }
 
     fn first_kv<Key: FromBytes, Value: FromBytes>(
@@ -233,7 +237,7 @@ impl<T: DbApi> DbApi for Database<T> {
 
     fn insert<Key: AsBytes, Value: AsBytes>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
         value: &Value,
     ) -> backend::Result<()> {
@@ -242,7 +246,7 @@ impl<T: DbApi> DbApi for Database<T> {
 
     fn remove<Key: AsBytes, Value>(
         &mut self,
-        table: &Table<Key, Value>,
+        table: &mut Table<Key, Value>,
         key: &Key,
     ) -> backend::Result<()> {
         self.transaction.remove(table, key)

@@ -41,9 +41,9 @@ pub trait DatabaseImpl {
     type Transaction<'a>
     where
         Self: 'a;
-    fn open_table(&self, name: &str) -> Result<Self::Table>;
+    fn open_table(&mut self, name: &str) -> Result<Self::Table>;
     fn transaction(
-        &self,
+        &mut self,
         f: impl Fn(Self::Transaction<'_>) -> Result<FinalizeTransaction>,
     ) -> TransactionResult;
 }
@@ -51,8 +51,8 @@ pub trait DatabaseImpl {
 pub trait TableImpl {
     type Iter;
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>>;
-    fn insert(&self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()>;
-    fn remove(&self, key: impl AsRef<[u8]>) -> Result<()>;
+    fn insert(&mut self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()>;
+    fn remove(&mut self, key: impl AsRef<[u8]>) -> Result<()>;
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, prefix: impl AsRef<[u8]>) -> Self::Iter;
@@ -79,12 +79,12 @@ pub trait TransactionImpl: Sized {
 
     fn insert(
         &mut self,
-        table: &Self::Table,
+        table: &mut Self::Table,
         key: impl Into<Buffer>,
         value: impl Into<Buffer>,
     ) -> Result<()>;
 
-    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()>;
+    fn remove(&mut self, table: &mut Self::Table, key: impl Into<Buffer>) -> Result<()>;
     fn first_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter;

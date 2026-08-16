@@ -58,12 +58,12 @@ impl super::DatabaseImpl for Database {
     type Transaction<'a> = Transaction<'a>;
 
     #[inline(always)]
-    fn open_table(&self, name: &str) -> Result<Self::Table> {
+    fn open_table(&mut self, name: &str) -> Result<Self::Table> {
         self.0.open_tree(name).map(Table)
     }
 
     fn transaction(
-        &self,
+        &mut self,
         f: impl Fn(Self::Transaction<'_>) -> Result<FinalizeTransaction>,
     ) -> TransactionResult {
         // Sled requires us to specify all of the trees involved in a transaction upfront,
@@ -113,11 +113,11 @@ impl super::TableImpl for Table {
     }
 
     #[inline(always)]
-    fn insert(&self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()> {
+    fn insert(&mut self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()> {
         self.0.insert(key, value).map(|_| ())
     }
 
-    fn remove(&self, key: impl AsRef<[u8]>) -> Result<()> {
+    fn remove(&mut self, key: impl AsRef<[u8]>) -> Result<()> {
         self.0.remove(key).map(|_| ())
     }
 
@@ -204,14 +204,14 @@ impl super::TransactionImpl for Transaction<'_> {
 
     fn insert(
         &mut self,
-        table: &Self::Table,
+        table: &mut Self::Table,
         key: impl Into<Buffer>,
         value: impl Into<Buffer>,
     ) -> Result<()> {
         self.transact(table, |tree| tree.insert(key.into(), value).map(|_| ()))
     }
 
-    fn remove(&mut self, table: &Self::Table, key: impl Into<Buffer>) -> Result<()> {
+    fn remove(&mut self, table: &mut Self::Table, key: impl Into<Buffer>) -> Result<()> {
         self.transact(table, |tree| tree.remove(key.into()).map(|_| ()))
     }
 }

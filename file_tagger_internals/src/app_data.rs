@@ -118,7 +118,7 @@ impl AppData {
             .collect();
 
         self.database
-            .insert(&self.table, &DataKey::RecentFolders, &buffer)
+            .insert(&mut self.table, &DataKey::RecentFolders, &buffer)
             .map(|_| folder)
     }
 

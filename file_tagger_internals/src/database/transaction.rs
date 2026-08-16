@@ -64,14 +64,14 @@ impl Transaction {
 
     pub fn insert(
         &mut self,
-        table: &UntypedTable,
+        table: &mut UntypedTable,
         key: impl Into<Buffer>,
         value: impl Into<Buffer>,
     ) -> Result<()> {
         transaction_method!(self, Insert, table.clone(), key.into(), value.into())
     }
 
-    pub fn remove(&mut self, table: &UntypedTable, key: impl Into<Buffer>) -> Result<()> {
+    pub fn remove(&mut self, table: &mut UntypedTable, key: impl Into<Buffer>) -> Result<()> {
         transaction_method!(self, Remove, table.clone(), key.into())
     }
 
@@ -110,7 +110,7 @@ impl Drop for Transaction {
     }
 }
 
-pub fn initialize_transaction(db: Database) -> Transaction {
+pub fn initialize_transaction(mut db: Database) -> Transaction {
     // Capacities of 0 because we always wait to get a result back right after sending an action,
     // so it's not possible for multiple messages to get queued up on either channel
     let (action_sender, action_receiver) = std::sync::mpsc::sync_channel(0);
@@ -121,12 +121,12 @@ pub fn initialize_transaction(db: Database) -> Transaction {
         let result = db.transaction(|mut transaction| {
             // This must always send a `TransReaction` back after each received `TransAction`, otherwise it will deadlock
             // (Except for `rollback` which is infallible and thus has no result to return)
-            while let Ok(action) = receiver.recv() {
+            while let Ok(mut action) = receiver.recv() {
                 macro_rules! transaction_match {
                     ($($variant:ident($($field:ident),*) = $fn:ident),* $(,)*) => {
                         match action {
                             $(
-                                TransAction::$variant(ref table, $($field),*) => {
+                                TransAction::$variant(ref mut table, $($field),*) => {
                                     sender
                                         .send(TransReaction::$variant(transaction.$fn(table, $($field),*)))
                                         .expect("Main thread disconnected before send");
