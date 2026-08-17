@@ -8,7 +8,7 @@ mod transaction;
 pub use backend::{Buffer, Error, FinalizeTransaction, Iter as UntypedIter, Table as UntypedTable};
 pub use transaction::Transaction;
 
-use crate::serde::{AsBytes, BytesInto, BytesIntoError, FromBytes};
+use crate::serde::{AsBytes, BytesInto, BytesIntoError, FromBytes, Prefixable, Serde};
 use backend::{Builder, BuilderImpl, DatabaseImpl, TableImpl};
 use transaction::initialize_transaction;
 
@@ -61,6 +61,7 @@ where
     }
 }
 
+/// API for strongly-typed database operations
 pub trait DbApi {
     /// Retrieve a value from the `Table` if it exists.
     fn get<Key: AsBytes, Value: FromBytes>(
@@ -97,10 +98,10 @@ pub trait DbApi {
     ) -> Result<Option<(Key, Value)>, DeserKvError<Key, Value>>;
 
     /// Returns an iterator over all entries in the table for which the value of the key starts with the given string of bytes.
-    fn prefix<Key: FromBytes, Value: FromBytes>(
+    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
-        prefix: impl Into<Buffer>,
+        prefix: &Prefix,
     ) -> Iter<Key, Value>;
 }
 
@@ -150,12 +151,12 @@ impl DbApi for NoTransaction {
         deser_kv_result(table.0.last_kv())
     }
 
-    fn prefix<Key: FromBytes, Value: FromBytes>(
+    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
-        prefix: impl Into<Buffer>,
+        prefix: &Prefix,
     ) -> Iter<Key, Value> {
-        Iter::new(table.0.prefix(prefix.into()))
+        Iter::new(table.0.prefix(Key::prefix(prefix)))
     }
 }
 
@@ -203,12 +204,12 @@ impl DbApi for Transaction {
         deser_kv_result(self.last_kv(&table.0))
     }
 
-    fn prefix<Key: FromBytes, Value: FromBytes>(
+    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
-        prefix: impl Into<Buffer>,
+        prefix: &Prefix,
     ) -> Iter<Key, Value> {
-        Iter::new(self.prefix(&table.0, prefix))
+        Iter::new(self.prefix(&table.0, Key::prefix(prefix).as_ref()))
     }
 }
 
@@ -266,10 +267,10 @@ impl<T: DbApi> DbApi for Database<T> {
         self.transaction.last_kv(table)
     }
 
-    fn prefix<Key: FromBytes, Value: FromBytes>(
+    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
-        prefix: impl Into<Buffer>,
+        prefix: &Prefix,
     ) -> Iter<Key, Value> {
         self.transaction.prefix(table, prefix)
     }

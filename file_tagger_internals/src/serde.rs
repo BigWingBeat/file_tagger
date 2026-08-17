@@ -242,6 +242,12 @@ impl<T: FromBytes> BytesInto<T> for &Buffer {
     }
 }
 
+/// Helper trait for key prefix lookup
+pub trait Prefixable<T: ?Sized> {
+    type Prefix: HasBytes;
+    fn prefix(prefix: &T) -> Self::Prefix;
+}
+
 /// Trait with bounds that enforce that the implementing type can be serialized and deserialized, which
 /// makes it usable as a key or value in untyped KV databases, which only deal in `&[u8]`.
 pub trait Serde: AsBytes + FromBytes {}
@@ -463,6 +469,22 @@ impl<T: AsBytes, U: AsBytes> AsBytes for (T, U) {
         } else {
             // A built-in method that does exactly what we're manually doing above, but only for 2 input slices
             Bytes::Owned(ByteView::fused(t.as_ref(), u.as_ref()).into())
+        }
+    }
+}
+
+/// Naïvely using the first element directly for a prefix search would fail if it has a variable size, due to the length prefix
+impl<T: AsBytes, U> Prefixable<T> for (T, U) {
+    type Prefix = Buffer;
+
+    fn prefix(t: &T) -> Self::Prefix {
+        let t = t.as_bytes();
+        if T::SIZE_HINT.is_none() {
+            // If `T` has a variable size, it needs a length prefix
+            let len = (t.len() as u32).to_le_bytes();
+            ByteView::fused(len.as_ref(), t.as_ref()).into()
+        } else {
+            t.as_ref().into()
         }
     }
 }
