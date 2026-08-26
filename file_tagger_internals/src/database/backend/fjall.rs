@@ -152,6 +152,13 @@ impl super::TableImpl for Table {
     fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter {
         Iter(self.0.as_ref().prefix(prefix))
     }
+
+    fn fetch_update<F>(&mut self, key: impl Into<Buffer>, f: F) -> Result<Option<Buffer>>
+    where
+        F: FnOnce(Option<&Buffer>) -> Option<Buffer>,
+    {
+        self.0.fetch_update(key, f)
+    }
 }
 
 #[repr(transparent)]
@@ -221,6 +228,18 @@ impl super::TransactionImpl for Transaction<'_> {
 
     fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter {
         Iter(self.0.prefix(&table.0, prefix))
+    }
+
+    fn fetch_update<F>(
+        &mut self,
+        table: &mut Self::Table,
+        key: impl Into<Buffer>,
+        f: F,
+    ) -> Result<Option<Buffer>>
+    where
+        F: FnOnce(Option<&Buffer>) -> Option<Buffer>,
+    {
+        self.0.fetch_update(&table.0, key, f)
     }
 
     fn commit(self) -> Result<FinalizeTransaction> {

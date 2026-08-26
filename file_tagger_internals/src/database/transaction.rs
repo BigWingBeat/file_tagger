@@ -16,6 +16,11 @@ enum TransAction {
     FirstKv(UntypedTable),
     LastKv(UntypedTable),
     Prefix(UntypedTable, Buffer),
+    FetchUpdate(
+        UntypedTable,
+        Buffer,
+        Box<dyn FnOnce(Option<&Buffer>) -> Option<Buffer>>,
+    ),
     Commit,
     Rollback,
 }
@@ -29,6 +34,7 @@ enum TransReaction {
     FirstKv(Result<Option<(Buffer, Buffer)>>),
     LastKv(Result<Option<(Buffer, Buffer)>>),
     Prefix(UntypedIter),
+    FetchUpdate(Result<Option<Buffer>>),
     Commit(Result<()>),
 }
 
@@ -45,10 +51,10 @@ macro_rules! transaction_method {
     ($self:ident, $operation:ident, $($params:expr),* $(,)*) => {
         transaction_method!($self, $operation = TransAction::$operation($($params),*))
     };
-    ($self:ident, $operation:ident) => {
+    ($self:ident, $operation:ident $(,)*) => {
         transaction_method!($self, $operation = TransAction::$operation)
     };
-    ($self:ident, $operation:ident = $action:expr) => {{
+    ($self:ident, $operation:ident = $action:expr $(,)*) => {{
         $self.sender.send($action).expect("Transaction thread disconnected before send");
         let TransReaction::$operation(result) = $self.receiver.recv().expect("Transaction thread disconnected before recv") else {
             unreachable!("Transaction thread returned incorrect variant");
@@ -85,6 +91,15 @@ impl Transaction {
 
     pub fn prefix(&self, table: &UntypedTable, prefix: impl Into<Buffer>) -> UntypedIter {
         transaction_method!(self, Prefix, table.clone(), prefix.into())
+    }
+
+    pub fn fetch_update(
+        &mut self,
+        table: &mut UntypedTable,
+        key: impl Into<Buffer>,
+        f: impl FnOnce(Option<&Buffer>) -> Option<Buffer> + 'static,
+    ) -> Result<Option<Buffer>> {
+        transaction_method!(self, FetchUpdate, table.clone(), key.into(), Box::new(f))
     }
 
     pub fn commit(self) -> Result<()> {

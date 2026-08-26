@@ -56,6 +56,10 @@ pub trait TableImpl {
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, prefix: impl AsRef<[u8]>) -> Self::Iter;
+
+    fn fetch_update<F>(&mut self, key: impl Into<Buffer>, f: F) -> Result<Option<Buffer>>
+    where
+        F: FnOnce(Option<&Buffer>) -> Option<Buffer>;
 }
 
 pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedIterator {}
@@ -88,6 +92,15 @@ pub trait TransactionImpl: Sized {
     fn first_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter;
+
+    fn fetch_update<F>(
+        &mut self,
+        table: &mut Self::Table,
+        key: impl Into<Buffer>,
+        f: F,
+    ) -> Result<Option<Buffer>>
+    where
+        F: FnOnce(Option<&Buffer>) -> Option<Buffer>;
 
     fn commit(self) -> Result<FinalizeTransaction> {
         Ok(FinalizeTransaction(FinalizeTransactionType::Commit))

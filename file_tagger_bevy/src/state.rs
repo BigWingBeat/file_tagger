@@ -43,7 +43,7 @@ macro_rules! app_state {
         }
 
         fn update_app_state(mut state: NonSendMut<ActiveView>, mut next_state: ResMut<NextState<AppState>>) {
-            let view_changed = state.update_to_next(|_, _, _| Box::new(()));
+            let view_changed = state.update_to_next(|_, _, data| data);
             if !view_changed {
                 return;
             }

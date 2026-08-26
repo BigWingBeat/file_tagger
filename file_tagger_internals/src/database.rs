@@ -103,6 +103,15 @@ pub trait DbApi {
         table: &Table<Key, Value>,
         prefix: &Prefix,
     ) -> Iter<Key, Value>;
+
+    fn fetch_update<Key: AsBytes, Value: Serde, F>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+        f: F,
+    ) -> Result<Option<Value>, DeserError<Value>>
+    where
+        F: FnOnce(Option<Value>) -> Option<Value>;
 }
 
 /// This type should not be returned from or constructable outside this module,
@@ -274,6 +283,18 @@ impl<T: DbApi> DbApi for Database<T> {
     ) -> Iter<Key, Value> {
         self.transaction.prefix(table, prefix)
     }
+
+    fn fetch_update<Key: AsBytes, Value: Serde, F>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+        f: F,
+    ) -> Result<Option<Value>, DeserError<Value>>
+    where
+        F: FnOnce(Option<Value>) -> Option<Value>,
+    {
+        self.transaction.fetch_update(table, key, f)
+    }
 }
 
 /// No transaction
@@ -395,23 +416,34 @@ impl<Key: FromBytes, Value: FromBytes> DoubleEndedIterator for Iter<Key, Value> 
     }
 }
 
-fn deser_result<Value: FromBytes>(
-    result: backend::Result<Option<backend::Buffer>>,
-) -> Result<Option<Value>, DeserError<Value>> {
+fn deser_result<T, E, Value>(
+    result: Result<Option<T>, E>,
+) -> Result<Option<Value>, DeserError<Value>>
+where
+    T: Borrow<backend::Buffer>,
+    E: Into<DeserError<Value>>,
+    Value: FromBytes,
+{
     match result {
-        Ok(Some(value)) => value.bytes_into().map_err(Into::into).map(Some),
+        Ok(Some(value)) => value.borrow().bytes_into().map_err(Into::into).map(Some),
         Ok(None) => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
 
-fn deser_kv_result<Key: FromBytes, Value: FromBytes>(
-    result: backend::Result<Option<(backend::Buffer, backend::Buffer)>>,
-) -> Result<Option<(Key, Value)>, DeserKvError<Key, Value>> {
+fn deser_kv_result<T, E, Key, Value>(
+    result: Result<Option<(T, T)>, E>,
+) -> Result<Option<(Key, Value)>, DeserKvError<Key, Value>>
+where
+    T: Borrow<backend::Buffer>,
+    E: Into<DeserKvError<Key, Value>>,
+    Key: FromBytes,
+    Value: FromBytes,
+{
     match result {
         Ok(Some((key, value))) => {
-            let key = key.bytes_into().map_err(DeserKvError::Key)?;
-            let value = value.bytes_into().map_err(DeserKvError::Value)?;
+            let key = key.borrow().bytes_into().map_err(DeserKvError::Key)?;
+            let value = value.borrow().bytes_into().map_err(DeserKvError::Value)?;
             Ok(Some((key, value)))
         }
         Ok(None) => Ok(None),

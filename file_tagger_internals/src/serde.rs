@@ -181,11 +181,35 @@ pub trait SizeHint {
     const SIZE_HINT: Option<usize>;
 }
 
+impl<T: SizeHint> SizeHint for &T {
+    const SIZE_HINT: Option<usize> = T::SIZE_HINT;
+}
+
+impl<T: SizeHint> SizeHint for &mut T {
+    const SIZE_HINT: Option<usize> = T::SIZE_HINT;
+}
+
 /// A bit like `AsRef<[u8]>`, but allows returning owned data too, which enables both directly returning some bytes without
 /// copying, as well as serializing data into arbitrary bytes and returning that
 pub trait AsBytes: SizeHint {
     type Bytes: HasBytes;
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes>;
+}
+
+impl<T: AsBytes> AsBytes for &T {
+    type Bytes = T::Bytes;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        T::as_bytes(self)
+    }
+}
+
+impl<T: AsBytes> AsBytes for &mut T {
+    type Bytes = T::Bytes;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        T::as_bytes(self)
+    }
 }
 
 /// A bit like `TryFrom<&[u8]>`, but controlled by us to workaround the orphan rule (we need to impl deser logic for foreign types)
@@ -248,6 +272,22 @@ pub trait Prefixable<T: ?Sized> {
     fn prefix(prefix: &T) -> Self::Prefix;
 }
 
+impl<T, U: Prefixable<T>> Prefixable<T> for &U {
+    type Prefix = U::Prefix;
+
+    fn prefix(prefix: &T) -> Self::Prefix {
+        U::prefix(prefix)
+    }
+}
+
+impl<T, U: Prefixable<T>> Prefixable<T> for &mut U {
+    type Prefix = U::Prefix;
+
+    fn prefix(prefix: &T) -> Self::Prefix {
+        U::prefix(prefix)
+    }
+}
+
 /// Trait with bounds that enforce that the implementing type can be serialized and deserialized, which
 /// makes it usable as a key or value in untyped KV databases, which only deal in `&[u8]`.
 pub trait Serde: AsBytes + FromBytes {}
@@ -255,6 +295,7 @@ pub trait Serde: AsBytes + FromBytes {}
 impl<T> Serde for T where T: AsBytes + FromBytes {}
 
 /// Like a `Vec<String>` but where all the strings are stored inline in a single heap allocation.
+#[derive(Default)]
 pub struct InlineStrVec {
     // The format this uses is little-endian `u32` length prefixes for each string in the buffer
     buffer: Buffer,
@@ -406,7 +447,7 @@ where
 {
     type Bytes = Buffer;
 
-    fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         let total_bytes = T::SIZE * self.len();
         let mut buffer = ByteView::builder(total_bytes);
         // We would use `as_chunks_mut` here but we can't because of bullshit
@@ -453,7 +494,7 @@ impl<T: SizeHint, U: SizeHint> SizeHint for (T, U) {
 impl<T: AsBytes, U: AsBytes> AsBytes for (T, U) {
     type Bytes = Buffer;
 
-    fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         let (t, u) = self;
         let t = t.as_bytes();
         let u = u.as_bytes();
