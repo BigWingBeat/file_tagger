@@ -8,8 +8,8 @@ mod tags_db;
 pub use crate::{
     app_data::{AppData, RecentFolder},
     database::{
-        Buffer, Error as DatabaseError, FinalizeTransaction, Result as DatabaseResult, Table,
-        Transaction, UntypedTable,
+        Buffer, Conflict, Error as DatabaseError, Result as DatabaseResult, Table, Transaction,
+        UntypedTable,
     },
     files::{create_folder_and_db, import_files, open_folder_as_db},
     state::{

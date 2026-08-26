@@ -2,11 +2,11 @@ use std::path::Path;
 
 use fjall::{CompressionType, KeyspaceCreateOptions, Readable};
 
-use super::{FinalizeTransaction, FinalizeTransactionType, TransactionResult};
+pub use fjall::Conflict;
 
 pub type Error = fjall::Error;
 
-pub type Result<T> = fjall::Result<T>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 pub type Buffer = fjall::Slice;
 
@@ -37,11 +37,13 @@ mod OptimisticTx {
 /// - `OptimisticTx` has the nicest API, but worse performance, as we have no concurrency
 ///
 /// Ideally we would use `NoTx` with `BaseTransaction`, but the latter is not exposed anywhere.
-/// We use `SingleWriterTx` as the aforementioned shenanigans are *mandatory* for the corresponding Sled impl,
-/// so as we are already paying that cost, this `SingleWriterTx` impl is essentially free
+/// We use `OptimisticTx` as it is the only type that actually provides the API and feature set we need,
+/// so we just have to eat the performance hit.
+///
+/// See: <https://github.com/fjall-rs/fjall/issues/318>
 // use NoTx::{FjallDatabase, Keyspace};
-use SingleWriterTx::{FjallDatabase, FjallTransaction, Keyspace};
-// use OptimisticTx::{FjallDatabase, FjallTransaction, Keyspace};
+// use SingleWriterTx::{FjallDatabase, FjallTransaction, Keyspace};
+use OptimisticTx::{FjallDatabase, FjallTransaction, Keyspace};
 
 #[repr(transparent)]
 pub struct Builder(fjall::DatabaseBuilder<FjallDatabase>);
@@ -86,7 +88,7 @@ pub struct Database(FjallDatabase);
 
 impl super::DatabaseImpl for Database {
     type Table = Table;
-    type Transaction<'a> = Transaction<'a>;
+    type Transaction = Transaction;
 
     #[inline(always)]
     fn open_table(&mut self, name: &str) -> Result<Self::Table> {
@@ -95,19 +97,8 @@ impl super::DatabaseImpl for Database {
             .map(Table)
     }
 
-    fn transaction(
-        &mut self,
-        f: impl Fn(Self::Transaction<'_>) -> Result<super::FinalizeTransaction>,
-    ) -> TransactionResult {
-        let transaction = self.0.write_tx();
-        let result = f(Transaction(transaction));
-        match result {
-            Ok(FinalizeTransaction(FinalizeTransactionType::Commit)) => TransactionResult::Ok(()),
-            Ok(FinalizeTransaction(FinalizeTransactionType::Rollback)) => {
-                TransactionResult::Rollback
-            }
-            Err(e) => TransactionResult::Err(e),
-        }
+    fn transaction(&mut self) -> Result<Self::Transaction> {
+        self.0.write_tx().map(Transaction)
     }
 }
 
@@ -155,7 +146,7 @@ impl super::TableImpl for Table {
 
     fn fetch_update<F>(&mut self, key: impl Into<Buffer>, f: F) -> Result<Option<Buffer>>
     where
-        F: FnOnce(Option<&Buffer>) -> Option<Buffer>,
+        F: FnMut(Option<&Buffer>) -> Option<Buffer>,
     {
         self.0.fetch_update(key, f)
     }
@@ -181,17 +172,18 @@ impl DoubleEndedIterator for Iter {
 impl super::IterImpl for Iter {}
 
 #[repr(transparent)]
-pub struct Transaction<'a>(FjallTransaction<'a>);
+pub struct Transaction(FjallTransaction);
 
-impl<'a> Transaction<'a> {
-    fn new(transaction: FjallTransaction<'a>) -> Self {
+impl Transaction {
+    fn new(transaction: FjallTransaction) -> Self {
         Self(transaction)
     }
 }
 
-impl super::TransactionImpl for Transaction<'_> {
+impl super::TransactionImpl for Transaction {
     type Table = Table;
     type Iter = Iter;
+    type Conflict = Conflict;
 
     fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
         self.0.get(&table.0, key.into())
@@ -242,14 +234,11 @@ impl super::TransactionImpl for Transaction<'_> {
         self.0.fetch_update(&table.0, key, f)
     }
 
-    fn commit(self) -> Result<FinalizeTransaction> {
-        self.0
-            .commit()
-            .map(|_| FinalizeTransaction(FinalizeTransactionType::Commit))
+    fn commit(self) -> Result<Result<(), Self::Conflict>> {
+        self.0.commit()
     }
 
-    fn rollback(self) -> FinalizeTransaction {
-        self.0.rollback();
-        FinalizeTransaction(FinalizeTransactionType::Rollback)
+    fn rollback(self) {
+        self.0.rollback()
     }
 }

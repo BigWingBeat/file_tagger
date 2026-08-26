@@ -1,18 +1,37 @@
-use std::{marker::PhantomData, path::Path};
+use std::{borrow::Borrow, marker::PhantomData, path::Path};
 
 use thiserror::Error;
 
 mod backend;
-mod transaction;
 
-pub use backend::{Buffer, Error, FinalizeTransaction, Iter as UntypedIter, Table as UntypedTable};
-pub use transaction::Transaction;
+pub use backend::{
+    Buffer, Conflict, Error, Iter as UntypedIter, Result, Table as UntypedTable, Transaction,
+};
 
 use crate::serde::{AsBytes, BytesInto, BytesIntoError, FromBytes, Prefixable, Serde};
-use backend::{Builder, BuilderImpl, DatabaseImpl, TableImpl};
-use transaction::initialize_transaction;
+use backend::{Builder, BuilderImpl, DatabaseImpl, TableImpl, TransactionImpl};
 
-pub type Result<T, E = backend::Error> = std::result::Result<T, E>;
+/// This is a macro instead of a helper method like `deser_result` and `deser_kv_result` because
+/// the fn signature and trait bounds would be super hairy and maybe even impossible to express
+macro_rules! typed_fetch_update {
+    ($key:ident, $inner_fn:ident, $outer_fn:expr $(,)*) => {{
+        // This can't be an `Option` because we would need to map `Some` to `Err` (and `None` to `Ok`),
+        // but `Option` only has methods for mapping `Some` to `Ok` (and `None` to `Err`).
+        let mut inner_result = Ok(());
+        let typed_fn_wrapper = |value: Option<&Buffer>| {
+            match value.map(BytesInto::bytes_into).transpose() {
+                Ok(value) => $inner_fn(value).map(|new_value| new_value.as_bytes().as_ref().into()),
+                Err(e) => {
+                    // This closure must be infallible so if deser fails we move the error out and return the previous value
+                    inner_result = Err(e);
+                    value.cloned()
+                }
+            }
+        };
+        let result = $outer_fn($key.as_bytes().as_ref(), typed_fn_wrapper);
+        result.map_err(Into::into).and_then(|value| deser_result(inner_result.map(|_| value)))
+    }};
+}
 
 #[derive(Error)]
 pub enum DeserError<Value: FromBytes> {
@@ -111,7 +130,7 @@ pub trait DbApi {
         f: F,
     ) -> Result<Option<Value>, DeserError<Value>>
     where
-        F: FnOnce(Option<Value>) -> Option<Value>;
+        F: FnMut(Option<Value>) -> Option<Value>;
 }
 
 /// This type should not be returned from or constructable outside this module,
@@ -167,6 +186,18 @@ impl DbApi for NoTransaction {
     ) -> Iter<Key, Value> {
         Iter::new(table.0.prefix(Key::prefix(prefix)))
     }
+
+    fn fetch_update<Key: AsBytes, Value: Serde, F>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+        mut f: F,
+    ) -> Result<Option<Value>, DeserError<Value>>
+    where
+        F: FnMut(Option<Value>) -> Option<Value>,
+    {
+        typed_fetch_update!(key, f, |key, f| table.0.fetch_update(key, f))
+    }
 }
 
 impl DbApi for Transaction {
@@ -175,7 +206,11 @@ impl DbApi for Transaction {
         table: &Table<Key, Value>,
         key: &Key,
     ) -> Result<Option<Value>, DeserError<Value>> {
-        deser_result(self.get(&table.0, key.as_bytes().as_ref()))
+        deser_result(TransactionImpl::get(
+            self,
+            &table.0,
+            key.as_bytes().as_ref(),
+        ))
     }
 
     fn insert<Key: AsBytes, Value: AsBytes>(
@@ -184,7 +219,8 @@ impl DbApi for Transaction {
         key: &Key,
         value: &Value,
     ) -> backend::Result<()> {
-        self.insert(
+        TransactionImpl::insert(
+            self,
             &mut table.0,
             key.as_bytes().as_ref(),
             value.as_bytes().as_ref(),
@@ -196,21 +232,21 @@ impl DbApi for Transaction {
         table: &mut Table<Key, Value>,
         key: &Key,
     ) -> backend::Result<()> {
-        self.remove(&mut table.0, key.as_bytes().as_ref())
+        TransactionImpl::remove(self, &mut table.0, key.as_bytes().as_ref())
     }
 
     fn first_kv<Key: FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
     ) -> Result<Option<(Key, Value)>, DeserKvError<Key, Value>> {
-        deser_kv_result(self.first_kv(&table.0))
+        deser_kv_result(TransactionImpl::first_kv(self, &table.0))
     }
 
     fn last_kv<Key: FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
     ) -> Result<Option<(Key, Value)>, DeserKvError<Key, Value>> {
-        deser_kv_result(self.last_kv(&table.0))
+        deser_kv_result(TransactionImpl::last_kv(self, &table.0))
     }
 
     fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
@@ -218,7 +254,28 @@ impl DbApi for Transaction {
         table: &Table<Key, Value>,
         prefix: &Prefix,
     ) -> Iter<Key, Value> {
-        Iter::new(self.prefix(&table.0, Key::prefix(prefix).as_ref()))
+        Iter::new(TransactionImpl::prefix(
+            self,
+            &table.0,
+            Key::prefix(prefix).as_ref(),
+        ))
+    }
+
+    fn fetch_update<Key: AsBytes, Value: Serde, F>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+        mut f: F,
+    ) -> Result<Option<Value>, DeserError<Value>>
+    where
+        F: FnMut(Option<Value>) -> Option<Value>,
+    {
+        typed_fetch_update!(key, f, |key, f| TransactionImpl::fetch_update(
+            self,
+            &mut table.0,
+            key,
+            f,
+        ))
     }
 }
 
@@ -291,7 +348,7 @@ impl<T: DbApi> DbApi for Database<T> {
         f: F,
     ) -> Result<Option<Value>, DeserError<Value>>
     where
-        F: FnOnce(Option<Value>) -> Option<Value>,
+        F: FnMut(Option<Value>) -> Option<Value>,
     {
         self.transaction.fetch_update(table, key, f)
     }
@@ -306,11 +363,11 @@ impl Database {
         }
     }
 
-    pub fn initialize_transaction(self) -> Database<Transaction> {
-        Database {
-            db: self.db.clone(),
-            transaction: initialize_transaction(self.db),
-        }
+    pub fn initialize_transaction(mut self) -> backend::Result<Database<Transaction>> {
+        self.db.transaction().map(|transaction| Database {
+            db: self.db,
+            transaction,
+        })
     }
 
     pub fn open(path: impl AsRef<Path>) -> backend::Result<Self> {
@@ -358,7 +415,7 @@ impl From<backend::Database> for Database {
 
 /// Yes transaction
 impl Database<Transaction> {
-    pub fn commit(self) -> (Database, backend::Result<()>) {
+    pub fn commit(self) -> (Database, backend::Result<Result<(), Conflict>>) {
         (self.db.into(), self.transaction.commit())
     }
 
@@ -415,6 +472,8 @@ impl<Key: FromBytes, Value: FromBytes> DoubleEndedIterator for Iter<Key, Value> 
         deser_kv_result(self.iter.next_back().transpose()).transpose()
     }
 }
+
+// Helper methods
 
 fn deser_result<T, E, Value>(
     result: Result<Option<T>, E>,

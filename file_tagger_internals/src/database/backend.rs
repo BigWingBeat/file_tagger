@@ -9,6 +9,7 @@ cfg_select! {
         use fjall as backend;
     }
     feature = "backend_sled" => {
+        compile_error!("The \"backend_sled\" feature is currently unsupported due to critical API limitations in Sled. This may change in the future, should Sled receive sufficient improvements in new versions.");
         mod sled;
         use sled as backend;
     }
@@ -19,7 +20,7 @@ cfg_select! {
 
 use std::path::Path;
 
-pub use backend::{Buffer, Builder, Database, Error, Iter, Result, Table, Transaction};
+pub use backend::{Buffer, Builder, Conflict, Database, Error, Iter, Result, Table, Transaction};
 
 pub trait BuilderImpl {
     type Database;
@@ -30,22 +31,11 @@ pub trait BuilderImpl {
     fn open(self) -> Result<Self::Database>;
 }
 
-pub enum TransactionResult<T = (), E = Error> {
-    Ok(T),
-    Err(E),
-    Rollback,
-}
-
 pub trait DatabaseImpl {
     type Table;
-    type Transaction<'a>
-    where
-        Self: 'a;
+    type Transaction;
     fn open_table(&mut self, name: &str) -> Result<Self::Table>;
-    fn transaction(
-        &mut self,
-        f: impl Fn(Self::Transaction<'_>) -> Result<FinalizeTransaction>,
-    ) -> TransactionResult;
+    fn transaction(&mut self) -> Result<Self::Transaction>;
 }
 
 pub trait TableImpl {
@@ -59,25 +49,16 @@ pub trait TableImpl {
 
     fn fetch_update<F>(&mut self, key: impl Into<Buffer>, f: F) -> Result<Option<Buffer>>
     where
-        F: FnOnce(Option<&Buffer>) -> Option<Buffer>;
+        F: FnMut(Option<&Buffer>) -> Option<Buffer>;
 }
 
 pub trait IterImpl: Iterator<Item = Result<(Buffer, Buffer)>> + DoubleEndedIterator {}
-
-/// This type cannot be constructed outside of this module, so the only way to obtain
-/// an instance of it is by calling `commit` or `rollback`, which both consume `self`
-pub struct FinalizeTransaction(FinalizeTransactionType);
-
-/// This type and the above tuple struct field should be private so that `FinalizeTransaction` cannot be constructed outside this module
-enum FinalizeTransactionType {
-    Commit,
-    Rollback,
-}
 
 /// Dropping the transaction type should default to rollback
 pub trait TransactionImpl: Sized {
     type Table;
     type Iter;
+    type Conflict;
 
     fn get(&self, table: &Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>>;
 
@@ -102,11 +83,6 @@ pub trait TransactionImpl: Sized {
     where
         F: FnOnce(Option<&Buffer>) -> Option<Buffer>;
 
-    fn commit(self) -> Result<FinalizeTransaction> {
-        Ok(FinalizeTransaction(FinalizeTransactionType::Commit))
-    }
-
-    fn rollback(self) -> FinalizeTransaction {
-        FinalizeTransaction(FinalizeTransactionType::Rollback)
-    }
+    fn commit(self) -> Result<Result<(), Self::Conflict>>;
+    fn rollback(self);
 }
