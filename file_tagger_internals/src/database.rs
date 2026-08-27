@@ -117,7 +117,7 @@ pub trait DbApi {
     ) -> Result<Option<(Key, Value)>, DeserKvError<Key, Value>>;
 
     /// Returns an iterator over all entries in the table for which the value of the key starts with the given string of bytes.
-    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
+    fn prefix<Prefix: ?Sized, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
         prefix: &Prefix,
@@ -179,7 +179,7 @@ impl DbApi for NoTransaction {
         deser_kv_result(table.0.last_kv())
     }
 
-    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
+    fn prefix<Prefix: ?Sized, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
         prefix: &Prefix,
@@ -249,7 +249,7 @@ impl DbApi for Transaction {
         deser_kv_result(TransactionImpl::last_kv(self, &table.0))
     }
 
-    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
+    fn prefix<Prefix: ?Sized, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
         prefix: &Prefix,
@@ -333,7 +333,7 @@ impl<T: DbApi> DbApi for Database<T> {
         self.transaction.last_kv(table)
     }
 
-    fn prefix<Prefix, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
+    fn prefix<Prefix: ?Sized, Key: Prefixable<Prefix> + FromBytes, Value: FromBytes>(
         &self,
         table: &Table<Key, Value>,
         prefix: &Prefix,

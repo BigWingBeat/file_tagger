@@ -13,10 +13,12 @@ use thiserror::Error;
 use crate::{
     DB_FOLDER_NAME, Transaction,
     app_data::RecentFolder,
-    database::{Buffer, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table},
+    database::{
+        self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
+    },
     serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Reader, SizeHint, SmallVec,
-        UnexpectedEof,
+        AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Prefixable, Reader, SizeHint,
+        SmallVec, UnexpectedEof,
     },
 };
 
@@ -58,11 +60,13 @@ impl DatabaseState {
         self.database.generate_entry()
     }
 
-    pub fn initialize_transaction(self) -> ActiveTransactionDatabaseState {
-        ActiveTransactionDatabaseState {
-            database: self.database.initialize_transaction(),
-            folder: self.folder,
-        }
+    pub fn initialize_transaction(self) -> Result<ActiveTransactionDatabaseState, database::Error> {
+        self.database
+            .initialize_transaction()
+            .map(|database| ActiveTransactionDatabaseState {
+                database,
+                folder: self.folder,
+            })
     }
 
     pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
@@ -75,7 +79,7 @@ impl DatabaseState {
 
     pub fn search_tags_names_by_prefix(
         &self,
-        prefix: impl Into<Buffer>,
+        prefix: &str,
     ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
         self.database.search_tags_names_by_prefix(prefix)
     }
@@ -86,15 +90,23 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     database: Database<Transaction>,
     /// Lookup which entries tags are applied to
     ///
-    /// Key: composite (tag name + tag data)
-    /// Value: list of entry IDs
+    /// Key: tag name
+    /// Value: list of entry IDs (no duplicates)
     ///
-    /// Note: data in key is split by word for strings ("inverted index") and not present for binary blobs
-    entries_by_tag: Table<(Tag, Buffer), SmallVec<Entry>>,
+    /// Note: This is a separate table from `entries_by_data` to enable prefix lookups on the tag name. That doesn't work with
+    /// `entries_by_data` because of the tuple length prefix, as to know the correct length prefix you have to know the full tag
+    entries_by_tag: Table<Tag, SmallVec<Entry>>,
+    /// Lookup which entries have tags with specific data
+    ///
+    /// Key: composite (tag name + tag data)
+    /// Value: list of entry IDs (no duplicates)
+    ///
+    /// Note: data in key is split by word for strings ("inverted index"), and not present for binary blobs and tags without data
+    entries_by_data: Table<(Tag, Buffer), SmallVec<Entry>>,
     /// Lookup which tags are applied to entries
     ///
     /// Key: entry ID
-    /// Value: list of tag names
+    /// Value: list of tag names (no duplicates)
     tags_by_entry: Table<Entry, InlineStrVec>,
     /// Lookup values of specific tag instances on specific entries
     ///
@@ -103,7 +115,7 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     ///
     /// Note: Tags without any associated data are not present, tag instances with empty data (e.g. empty strings) are present
     tag_values: Table<(Entry, Tag), Buffer>,
-    /// Convert tag names to their associated tag entries
+    /// Convert tag names to their associated tag entries (that is, the "meta" entry that describes that tag)
     ///
     /// Key: tag name
     /// Value: tag entry ID
@@ -117,6 +129,7 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
 impl<T: DbApi> TagsDatabase<T> {
     fn open_tables(mut database: Database<T>) -> miette::Result<Self> {
         let entries_by_tag = database.open_table("EntriesByTag").into_diagnostic()?;
+        let entries_by_data = database.open_table("EntriesByData").into_diagnostic()?;
         let tags_by_entry = database.open_table("TagsByEntry").into_diagnostic()?;
         let tag_values = database.open_table("TagValues").into_diagnostic()?;
         let tag_entries = database.open_table("TagEntries").into_diagnostic()?;
@@ -126,11 +139,55 @@ impl<T: DbApi> TagsDatabase<T> {
         Ok(Self {
             database,
             entries_by_tag,
+            entries_by_data,
             tags_by_entry,
             tag_values,
             tag_entries,
             generator,
         })
+    }
+
+    fn insert_tag_on_entry(&mut self, tag: Tag, entry: Entry) -> miette::Result<()> {
+        // Update entries_by_tag: append entry to value (unless already present)
+        // Update entries_by_data: append entry to value (unless already present)
+        // Update tags_by_entry: append tag to value (unless already present)
+        // Insert into tag_values
+
+        let value = Buffer::default();
+
+        self.database
+            .fetch_update(&mut self.entries_by_tag, &tag, |entries| {
+                let mut entries = entries.unwrap_or_default();
+                if let Err(i) = entries.binary_search(&entry) {
+                    entries.insert(i, entry);
+                }
+                Some(entries)
+            })
+            .into_diagnostic()?;
+
+        self.database
+            .fetch_update(&mut self.entries_by_data, &(tag, value), |entries| {
+                let mut entries = entries.unwrap_or_default();
+                if let Err(i) = entries.binary_search(&entry) {
+                    entries.insert(i, entry);
+                }
+                Some(entries)
+            })
+            .into_diagnostic()?;
+
+        self.database
+            .fetch_update(&mut self.tags_by_entry, &entry, |tags| {
+                let mut tags = tags.unwrap_or_default();
+                if let Err(i) = tags.binary_search(tag) {
+                    tags.insert(i, tag);
+                }
+                Some(tags)
+            })
+            .into_diagnostic()?;
+
+        self.database
+            .insert(&mut self.tag_values, &(entry, tag), &value)
+            .into_diagnostic()
     }
 
     fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
@@ -145,7 +202,7 @@ impl<T: DbApi> TagsDatabase<T> {
 
     fn search_tags_names_by_prefix(
         &self,
-        prefix: impl Into<Buffer>,
+        prefix: &str,
     ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
         self.database
             .prefix(&self.tag_entries, prefix)
@@ -184,26 +241,30 @@ impl TagsDatabase {
             .and_then(Self::open_tables)
     }
 
-    fn initialize_transaction(self) -> TagsDatabase<Transaction> {
-        TagsDatabase {
-            database: self.database.initialize_transaction(),
-            entries_by_tag: self.entries_by_tag,
-            tags_by_entry: self.tags_by_entry,
-            tag_values: self.tag_values,
-            tag_entries: self.tag_entries,
-            generator: self.generator,
-        }
+    fn initialize_transaction(self) -> Result<TagsDatabase<Transaction>, database::Error> {
+        self.database
+            .initialize_transaction()
+            .map(|database| TagsDatabase {
+                database,
+                entries_by_tag: self.entries_by_tag,
+                entries_by_data: self.entries_by_data,
+                tags_by_entry: self.tags_by_entry,
+                tag_values: self.tag_values,
+                tag_entries: self.tag_entries,
+                generator: self.generator,
+            })
     }
 }
 
 /// Yes transaction methods
 impl TagsDatabase<Transaction> {
-    fn commit(self) -> (TagsDatabase, crate::database::Result<()>) {
+    fn commit(self) -> (TagsDatabase, Result<Result<(), Conflict>, database::Error>) {
         let (database, result) = self.database.commit();
         (
             TagsDatabase {
                 database,
                 entries_by_tag: self.entries_by_tag,
+                entries_by_data: self.entries_by_data,
                 tags_by_entry: self.tags_by_entry,
                 tag_values: self.tag_values,
                 tag_entries: self.tag_entries,
@@ -217,6 +278,7 @@ impl TagsDatabase<Transaction> {
         TagsDatabase {
             database: self.database.rollback(),
             entries_by_tag: self.entries_by_tag,
+            entries_by_data: self.entries_by_data,
             tags_by_entry: self.tags_by_entry,
             tag_values: self.tag_values,
             tag_entries: self.tag_entries,
@@ -242,12 +304,12 @@ impl ActiveTransactionDatabaseState {
 
     pub fn search_tags_names_by_prefix(
         &self,
-        prefix: impl Into<Buffer>,
+        prefix: &str,
     ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
         self.database.search_tags_names_by_prefix(prefix)
     }
 
-    pub fn commit(self) -> (DatabaseState, crate::database::Result<()>) {
+    pub fn commit(self) -> (DatabaseState, Result<Result<(), Conflict>, database::Error>) {
         let (database, result) = self.database.commit();
         (
             DatabaseState {
@@ -269,7 +331,7 @@ impl ActiveTransactionDatabaseState {
 /// Identifies a single entry in the database, which can have many associated tags.
 /// Value is stored in big-endian form for correct lexicographic ordering.
 /// Used for non-tag entries
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Entry(Scru64Id);
 
@@ -349,6 +411,14 @@ impl AsBytes for Tag {
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         Bytes::Borrowed(self.0.as_ref())
+    }
+}
+
+impl<T: AsRef<str> + ?Sized> Prefixable<T> for Tag {
+    type Prefix = String;
+
+    fn prefix(prefix: &T) -> Self::Prefix {
+        prefix.as_ref().to_owned()
     }
 }
 
