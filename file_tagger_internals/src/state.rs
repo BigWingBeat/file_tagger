@@ -34,17 +34,25 @@ macro_rules! app_state {
 
                 pub fn queue_next_state<To>(&mut self)
                 where
-                    Self: StateTransition<To, ()>,
+                    To: 'static,
+                    Self: DynStateTransition<To>,
                 {
-                    self.queue_next_state_with(());
+                    self.next_state = Some(Box::new(DynStateTransition::transition));
                 }
 
                 pub fn queue_next_state_with<To, Parameters>(&mut self, parameters: Parameters)
                 where
-                    Self: StateTransition<To, Parameters>,
+                    Parameters: 'static,
+                    Self: DynStateTransitionWith<To, Parameters>,
                 {
-                    let transition_fn = Self::make_transition_fn(parameters);
-                    self.next_state = Some(transition_fn);
+                    // State transitions work in a deferred manner: they are queued during a frame, then applied later. In each state type,
+                    // the `next_state` field stores the function that performs the state transition until it is actually used.
+                    //
+                    // For some reason, `FnOnce` seems to be an exception to the rule that trait objects can't move `self` by value.
+                    // We rely on this to allow consuming parameter values passed in at the call site where a state transition is queued,
+                    // by using closure variable capturing to magically store those parameters in the trait object, until they are consumed
+                    // by-value when the `FnOnce` is called during [`ActiveView::update_to_next`].
+                    self.next_state = Some(Box::new(|from| DynStateTransitionWith::transition(from, parameters)));
                 }
             }
 
@@ -211,6 +219,22 @@ app_state! {
     },
 }
 
+impl UnrecoverableError {
+    pub fn new_error(e: Report) -> Self {
+        Self {
+            active_overlay: ActiveOverlay::Error(e),
+            ..Self::new()
+        }
+    }
+
+    pub fn new_error_with<T: AnyDebug>(e: Report, data: T) -> Self {
+        Self {
+            active_overlay: ActiveOverlay::Error(e),
+            ..Self::new_with(data)
+        }
+    }
+}
+
 /// To get Clippy to shut up
 impl Default for UnrecoverableError {
     fn default() -> Self {
@@ -218,35 +242,51 @@ impl Default for UnrecoverableError {
     }
 }
 
-pub trait StateTransition<To, Parameters = ()>: MakeStateTransition<To, Parameters> {
-    fn transition(self, parameters: Parameters) -> To;
+/// A specific, infallible state transition
+pub trait StateTransition<To> {
+    fn transition(self) -> To;
 }
 
-pub trait MakeStateTransition<To, Parameters>: Sized {
-    fn make_transition_fn(parameters: Parameters) -> Box<dyn FnOnce(Self) -> ActiveView>;
+/// A dynamic state transition that may not actually transition to the advertised target state
+pub trait DynStateTransition<To> {
+    fn transition(self) -> ActiveView;
 }
 
-/// The way this trait and `StateTransition` are defined and implemented is carefully structured, in order to prevent these
-/// bounds from becoming viral and spreading across all the other state-transition-related code.
-impl<From, To, Parameters> MakeStateTransition<To, Parameters> for From
+/// `StateTransition` is more specific than `DynStateTransition`, so we just bound on
+/// the latter and rely on this blanket impl to allow also using impls of the former
+impl<From, To> DynStateTransition<To> for From
 where
-    From: StateTransition<To, Parameters>,
+    From: StateTransition<To>,
     To: Into<ActiveView>,
-    Parameters: 'static,
 {
-    /// State transitions work in a deferred manner: they are queued during a frame, then applied later. In each state type,
-    /// the `next_state` field stores the function that performs the state transition until it is actually used.
-    ///
-    /// For some reason, `dyn FnOnce` seems to be an exception to the rule that trait objects can't move `self` by value.
-    /// We rely on this to allow consuming parameter values passed in at the call site where a state transition is queued,
-    /// by using closure variable capturing to magically store those parameters in the trait object, until they are consumed
-    /// by-value when the `dyn FnOnce` is called during [`ActiveView::update_to_next`].
-    fn make_transition_fn(parameters: Parameters) -> Box<dyn FnOnce(Self) -> ActiveView> {
-        Box::new(|from| from.transition(parameters).into())
+    fn transition(self) -> ActiveView {
+        self.transition().into()
     }
 }
 
-impl StateTransition<SearchMenu, DatabaseState> for Launcher {
+/// A specific, infallible state transition, with parameters
+pub trait StateTransitionWith<To, Parameters> {
+    fn transition(self, parameters: Parameters) -> To;
+}
+
+/// A dynamic state transition, with parameters, that may not actually transition to the advertised target state
+pub trait DynStateTransitionWith<To, Parameters> {
+    fn transition(self, parameters: Parameters) -> ActiveView;
+}
+
+/// `StateTransitionWith` is more specific than `DynStateTransitionWith`, so we just bound on
+/// the latter and rely on this blanket impl to allow also using impls of the former
+impl<From, To, Parameters> DynStateTransitionWith<To, Parameters> for From
+where
+    From: StateTransitionWith<To, Parameters>,
+    To: Into<ActiveView>,
+{
+    fn transition(self, parameters: Parameters) -> ActiveView {
+        self.transition(parameters).into()
+    }
+}
+
+impl StateTransitionWith<SearchMenu, DatabaseState> for Launcher {
     fn transition(self, db: DatabaseState) -> SearchMenu {
         SearchMenu::new(
             self.persistent.clone(),
@@ -258,7 +298,7 @@ impl StateTransition<SearchMenu, DatabaseState> for Launcher {
 }
 
 // Identity transitions are valid
-impl StateTransition<SearchMenu, DatabaseState> for SearchMenu {
+impl StateTransitionWith<SearchMenu, DatabaseState> for SearchMenu {
     fn transition(self, db: DatabaseState) -> SearchMenu {
         SearchMenu::new(
             self.persistent.clone(),
@@ -270,7 +310,7 @@ impl StateTransition<SearchMenu, DatabaseState> for SearchMenu {
 }
 
 impl StateTransition<SearchResults> for SearchMenu {
-    fn transition(self, _: ()) -> SearchResults {
+    fn transition(self) -> SearchResults {
         SearchResults::new(
             self.persistent.clone(),
             self.database.clone(),
@@ -280,15 +320,20 @@ impl StateTransition<SearchResults> for SearchMenu {
     }
 }
 
-impl StateTransition<Edit> for SearchMenu {
-    fn transition(self, _: ()) -> Edit {
-        Edit::new(
-            self.persistent.clone(),
-            self.database.initialize_transaction(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        )
+/// Fallible state transitions are possible with the `Dyn`-variants of the state transition traits
+impl DynStateTransition<Edit> for SearchMenu {
+    fn transition(self) -> ActiveView {
+        match self.database.initialize_transaction().into_diagnostic() {
+            Ok(db) => Edit::new(
+                self.persistent.clone(),
+                db,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
+            .into(),
+            Err(e) => UnrecoverableError::new_error(e).into(),
+        }
     }
 }
 
@@ -297,7 +342,7 @@ impl StateTransition<Edit> for SearchMenu {
 /// distinguished at the type-system level.
 pub struct Commit;
 
-impl StateTransition<SearchMenu, Commit> for Edit {
+impl StateTransitionWith<SearchMenu, Commit> for Edit {
     fn transition(self, _: Commit) -> SearchMenu {
         let (db, result) = self.database.commit();
         let mut state = SearchMenu::new(
@@ -318,7 +363,7 @@ impl StateTransition<SearchMenu, Commit> for Edit {
 /// distinguished at the type-system level.
 pub struct Rollback;
 
-impl StateTransition<SearchMenu, Rollback> for Edit {
+impl StateTransitionWith<SearchMenu, Rollback> for Edit {
     fn transition(self, _: Rollback) -> SearchMenu {
         SearchMenu::new(
             self.persistent.clone(),
@@ -330,7 +375,7 @@ impl StateTransition<SearchMenu, Rollback> for Edit {
 }
 
 impl StateTransition<SearchResults> for SearchResults {
-    fn transition(self, _: ()) -> SearchResults {
+    fn transition(self) -> SearchResults {
         SearchResults::new(
             self.persistent.clone(),
             self.database.clone(),
@@ -340,15 +385,19 @@ impl StateTransition<SearchResults> for SearchResults {
     }
 }
 
-impl StateTransition<Edit> for SearchResults {
-    fn transition(self, _: ()) -> Edit {
-        Edit::new(
-            self.persistent.clone(),
-            self.database.initialize_transaction(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        )
+impl DynStateTransition<Edit> for SearchResults {
+    fn transition(self) -> ActiveView {
+        match self.database.initialize_transaction().into_diagnostic() {
+            Ok(db) => Edit::new(
+                self.persistent.clone(),
+                db,
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
+            .into(),
+            Err(e) => UnrecoverableError::new_error(e).into(),
+        }
     }
 }
 
@@ -384,11 +433,7 @@ impl ActiveView {
     pub fn new<T: AnyDebug>(data: T) -> Self {
         match AppData::open() {
             Ok(persistent) => Launcher::new_with(data, persistent, Default::default()).into(),
-            Err(e) => UnrecoverableError {
-                active_overlay: ActiveOverlay::Error(e),
-                ..UnrecoverableError::new_with(data)
-            }
-            .into(),
+            Err(e) => UnrecoverableError::new_error_with(e, data).into(),
         }
     }
 
