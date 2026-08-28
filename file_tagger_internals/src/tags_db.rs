@@ -165,8 +165,9 @@ impl<T: DbApi> TagsDatabase<T> {
             })
             .into_diagnostic()?;
 
+        let key = (tag, value);
         self.database
-            .fetch_update(&mut self.entries_by_data, &(tag, value), |entries| {
+            .fetch_update(&mut self.entries_by_data, &key, |entries| {
                 let mut entries = entries.unwrap_or_default();
                 if let Err(i) = entries.binary_search(&entry) {
                     entries.insert(i, entry);
@@ -174,6 +175,7 @@ impl<T: DbApi> TagsDatabase<T> {
                 Some(entries)
             })
             .into_diagnostic()?;
+        let (tag, value) = key;
 
         self.database
             .fetch_update(&mut self.tags_by_entry, &entry, |tags| {
@@ -185,8 +187,9 @@ impl<T: DbApi> TagsDatabase<T> {
             })
             .into_diagnostic()?;
 
+        let key = (entry, tag);
         self.database
-            .insert(&mut self.tag_values, &(entry, tag), &value)
+            .insert(&mut self.tag_values, &key, &value)
             .into_diagnostic()
     }
 
