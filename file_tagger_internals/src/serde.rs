@@ -1,6 +1,7 @@
 use std::{convert::Infallible, ops::Deref, str::Utf8Error};
 
 use byteview::ByteView;
+use estr::Estr;
 use thiserror::Error;
 
 use crate::Buffer;
@@ -294,121 +295,53 @@ pub trait Serde: AsBytes + FromBytes {}
 
 impl<T> Serde for T where T: AsBytes + FromBytes {}
 
-/// Like a `Vec<String>` but where all the strings are stored inline in a single heap allocation.
-#[derive(Default)]
-pub struct InlineStrVec {
-    // The format this uses is little-endian `u32` length prefixes for each string in the buffer
-    buffer: Buffer,
-}
+// Serde impls for commonly used types
 
-impl InlineStrVec {
-    pub fn empty() -> Self {
-        Self {
-            buffer: Buffer::empty(),
-        }
-    }
-
-    pub fn iter(&self) -> InlineStrVecIter<'_> {
-        InlineStrVecIter {
-            reader: Reader::new(&self.buffer),
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a InlineStrVec {
-    type Item = &'a str;
-
-    type IntoIter = InlineStrVecIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum InlineStrVecError {
-    #[error("unexpected EOF while reading length prefix")]
-    LengthPrefixEof(#[source] UnexpectedEof),
-    #[error("unexpected EOF while reading string")]
-    StringEof(#[source] UnexpectedEof),
-    #[error(transparent)]
-    InvalidUTF8(#[from] Utf8Error),
-}
-
-impl SizeHint for InlineStrVec {
+impl SizeHint for Buffer {
     const SIZE_HINT: Option<usize> = None;
 }
 
-impl FromBytes for InlineStrVec {
-    type Error = InlineStrVecError;
-
-    // It's important for this to check that the buffer is well-formed so the iterator impl can be infallible.
-    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        // We get a hold of the entire buffer, then reconstruct the reader, because the reading we do is only for
-        // checking correctness, and we really want to just copy the entire buffer all at once, afterwards.
-        // Shared refs are `Copy`, so the new reader has its own copy of the buffer ref, separate from the one in `buffer`
-        let buffer = bytes.take_all();
-        let mut bytes = Reader::new(buffer);
-
-        while !bytes.is_empty() {
-            // The format is a little-endian u32, followed by a string of that many bytes, repeated to the end of the buffer
-            let prefix = bytes
-                .read_exact()
-                .map_err(InlineStrVecError::LengthPrefixEof)?;
-            let len = u32::from_le_bytes(prefix) as _;
-
-            let string = bytes
-                .split_off(len)
-                .map_err(InlineStrVecError::StringEof)?
-                .take_all();
-
-            // We just need to check that the bytes in the buffer are valid UTF-8, doing anything with the str is unneeded
-            let _ = str::from_utf8(string)?;
-        }
-
-        Ok(Self {
-            buffer: buffer.into(),
-        })
-    }
-}
-
-impl AsBytes for InlineStrVec {
-    type Bytes = Buffer;
+impl AsBytes for Buffer {
+    type Bytes = Self;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Borrowed(self.buffer.as_ref())
+        Bytes::Borrowed(self.as_ref())
     }
 }
 
-impl<'a, A: AsRef<str> + ?Sized> FromIterator<&'a A> for InlineStrVec {
-    fn from_iter<T: IntoIterator<Item = &'a A>>(iter: T) -> Self {
-        // When the input is already valid strings, as opposed to raw bytes, construction is infallible
-        let buffer = iter
-            .into_iter()
-            .map(AsRef::as_ref)
-            .flat_map(|s| (s.len() as u32).to_le_bytes().into_iter().chain(s.bytes()))
-            .collect();
-        Self { buffer }
+impl FromBytes for Buffer {
+    type Error = Infallible;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        Ok(bytes.take_all().into())
     }
 }
 
-pub struct InlineStrVecIter<'a> {
-    reader: Reader<'a>,
+impl SizeHint for Estr {
+    const SIZE_HINT: Option<usize> = None;
 }
 
-impl<'a> Iterator for InlineStrVecIter<'a> {
-    type Item = &'a str;
+impl FromBytes for Estr {
+    type Error = Utf8Error;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.reader.is_empty() {
-            return None;
-        }
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        str::from_utf8(bytes.take_all()).map(Estr::from)
+    }
+}
 
-        // We use unwraps here because `InlineStrVec` ensures it is well-formed on construction, so it should be fine
-        let len = self.reader.read_exact().unwrap();
-        let len = u32::from_le_bytes(len) as _;
-        let string = self.reader.split_off(len).unwrap().take_all();
-        Some(str::from_utf8(string).unwrap())
+impl AsBytes for Estr {
+    type Bytes = String;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Borrowed(self.as_str())
+    }
+}
+
+impl<T: AsRef<str> + ?Sized> Prefixable<T> for Estr {
+    type Prefix = String;
+
+    fn prefix(prefix: &T) -> Self::Prefix {
+        prefix.as_ref().to_owned()
     }
 }
 
@@ -572,25 +505,5 @@ impl<T: FromBytes, U: FromBytes> FromBytes for (T, U) {
                 U::try_from(bytes).map_err(TupleError::Second)?,
             ))
         }
-    }
-}
-
-impl SizeHint for Buffer {
-    const SIZE_HINT: Option<usize> = None;
-}
-
-impl AsBytes for Buffer {
-    type Bytes = Self;
-
-    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Borrowed(self.as_ref())
-    }
-}
-
-impl FromBytes for Buffer {
-    type Error = Infallible;
-
-    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        Ok(bytes.take_all().into())
     }
 }

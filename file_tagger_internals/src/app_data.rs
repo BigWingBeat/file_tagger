@@ -1,13 +1,14 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use arrayvec::ArrayVec;
+use estr::Estr;
 use miette::IntoDiagnostic;
 use thiserror::Error;
 
 use crate::{
     APP_DATA_FOLDER_NAME,
     database::{Database, DbApi, Table},
-    serde::{AsBytes, Bytes, FromBytes, InlineStrVec, Reader, SizeHint},
+    serde::{AsBytes, Bytes, FromBytes, Reader, SizeHint, SmallVec},
 };
 
 #[derive(Clone)]
@@ -39,7 +40,7 @@ const MAX_RECENTS: usize = 10;
 #[derive(Clone)]
 pub struct AppData {
     database: Database,
-    table: Table<DataKey, InlineStrVec>,
+    table: Table<DataKey, SmallVec<Estr>>,
     /// The `ArrayVec` is boxed as with a capacity of 10 it is 488 bytes, which would more than double the size of `ActiveView`
     recent_folders: Box<ArrayVec<RecentFolder, MAX_RECENTS>>,
 }
@@ -60,7 +61,7 @@ impl AppData {
             .map(|result| {
                 Box::new(
                     result
-                        .unwrap_or_else(InlineStrVec::empty)
+                        .unwrap_or_else(SmallVec::new)
                         .iter()
                         .take(MAX_RECENTS)
                         .map(PathBuf::from)
@@ -114,7 +115,7 @@ impl AppData {
         let buffer = self
             .recent_folders
             .iter()
-            .filter_map(|folder| folder.path.to_str())
+            .filter_map(|folder| folder.path.to_str().map(Estr::from))
             .collect();
 
         self.database

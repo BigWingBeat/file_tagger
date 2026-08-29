@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use byteview::StrView;
+use estr::Estr;
 use miette::IntoDiagnostic;
 use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec, id::RangeError};
 use thiserror::Error;
@@ -17,8 +17,8 @@ use crate::{
         self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
     },
     serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, InlineStrVec, Prefixable, Reader, SizeHint,
-        SmallVec, UnexpectedEof,
+        AsBytes, Bytes, DerefProxy, FromBytes, Prefixable, Reader, SizeHint, SmallVec,
+        UnexpectedEof,
     },
 };
 
@@ -101,13 +101,14 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     /// Key: composite (tag name + tag data)
     /// Value: list of entry IDs (no duplicates)
     ///
-    /// Note: data in key is split by word for strings ("inverted index"), and not present for binary blobs and tags without data
+    /// Note: data in key is split by word for strings ("inverted index"). Tags with binary data, and tags without any data, are
+    /// not present in this table at all, as there is no way to search for specific data values for such tags
     entries_by_data: Table<(Tag, Buffer), SmallVec<Entry>>,
     /// Lookup which tags are applied to entries
     ///
     /// Key: entry ID
     /// Value: list of tag names (no duplicates)
-    tags_by_entry: Table<Entry, InlineStrVec>,
+    tags_by_entry: Table<Entry, SmallVec<Tag>>,
     /// Lookup values of specific tag instances on specific entries
     ///
     /// Key: composite (entry ID + tag name)
@@ -180,9 +181,12 @@ impl<T: DbApi> TagsDatabase<T> {
         self.database
             .fetch_update(&mut self.tags_by_entry, &entry, |tags| {
                 let mut tags = tags.unwrap_or_default();
-                if let Err(i) = tags.binary_search(tag) {
-                    tags.insert(i, tag);
+                if !tags.contains(&tag) {
+                    tags.push(tag);
                 }
+                // if let Err(i) = tags.binary_search(tag) {
+                //     tags.insert(i, tag);
+                // }
                 Some(tags)
             })
             .into_diagnostic()?;
@@ -393,9 +397,9 @@ impl TryFrom<[u8; 8]> for Entry {
 
 /// User-facing UTF-8 identifier for a tag, which is a type that can have instances associated with specific entries.
 /// Each tag also has its own associated entry, which can itself be tagged.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 #[repr(transparent)]
-pub struct Tag(StrView);
+pub struct Tag(Estr);
 
 impl SizeHint for Tag {
     const SIZE_HINT: Option<usize> = None;
@@ -405,7 +409,7 @@ impl FromBytes for Tag {
     type Error = Utf8Error;
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        str::from_utf8(bytes.take_all()).map(Into::into).map(Self)
+        FromBytes::try_from(bytes).map(Self)
     }
 }
 
@@ -413,7 +417,7 @@ impl AsBytes for Tag {
     type Bytes = String;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Borrowed(self.0.as_ref())
+        self.0.as_bytes()
     }
 }
 
@@ -421,7 +425,7 @@ impl<T: AsRef<str> + ?Sized> Prefixable<T> for Tag {
     type Prefix = String;
 
     fn prefix(prefix: &T) -> Self::Prefix {
-        prefix.as_ref().to_owned()
+        Estr::prefix(prefix)
     }
 }
 
@@ -439,7 +443,7 @@ impl Tag {
 
 impl Display for Tag {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 

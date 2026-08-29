@@ -10,6 +10,7 @@ anymore.workspace = true
 arrayvec.workspace = true
 byteview.workspace = true
 dirs.workspace = true
+estr.workspace = true
 fjall = { workspace = true, optional = true }
 miette.workspace = true
 replace_with.workspace = true
