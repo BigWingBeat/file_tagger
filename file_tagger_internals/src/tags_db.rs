@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     fmt::{Debug, Display, Formatter},
     path::{Path, PathBuf},
     str::Utf8Error,
@@ -400,6 +401,18 @@ impl TryFrom<[u8; 8]> for Entry {
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 #[repr(transparent)]
 pub struct Tag(Estr);
+
+impl PartialOrd for Tag {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Tag {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.as_str().cmp(other.0.as_str())
+    }
+}
 
 impl SizeHint for Tag {
     const SIZE_HINT: Option<usize> = None;
