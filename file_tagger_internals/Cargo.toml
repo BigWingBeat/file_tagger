@@ -21,5 +21,6 @@ smallvec.workspace = true
 thiserror.workspace = true
 
 [features]
+default = ["backend_fjall"]
 backend_fjall = ["dep:fjall"]
 backend_sled = ["dep:sled"]
