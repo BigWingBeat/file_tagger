@@ -251,8 +251,8 @@ fn tag_list(state: &mut Edit) -> impl Scene + use<> {
                     column_gap: px(10),
                 }
                 Children [
-                    ( button(bsn!(label("Save Changes"))) on(|_: On<Activate>, mut state: LensState<Edit>| {}) ),
-                    ( button(bsn!(label("Cancel"))) on(|_: On<Activate>, mut state: LensState<Edit>| state.search_menu()) ),
+                    ( button(bsn!(label("Save Changes"))) on(|_: On<Activate>, mut state: LensState<Edit>| state.save_changes()) ),
+                    ( button(bsn!(label("Cancel"))) on(|_: On<Activate>, mut state: LensState<Edit>| state.cancel()) ),
                 ]
             ),
         ]
