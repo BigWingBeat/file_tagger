@@ -18,7 +18,7 @@ use crate::{
         self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
     },
     serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, Prefixable, Reader, SizeHint, SmallVec,
+        AsBytes, Bytes, DerefProxy, FromBytes, Prefixable, Reader, SizeHint, SmallSortedSet,
         UnexpectedEof,
     },
 };
@@ -96,7 +96,7 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     ///
     /// Note: This is a separate table from `entries_by_data` to enable prefix lookups on the tag name. That doesn't work with
     /// `entries_by_data` because of the tuple length prefix, as to know the correct length prefix you have to know the full tag
-    entries_by_tag: Table<Tag, SmallVec<Entry>>,
+    entries_by_tag: Table<Tag, SmallSortedSet<Entry>>,
     /// Lookup which entries have tags with specific data
     ///
     /// Key: composite (tag name + tag data)
@@ -104,12 +104,12 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     ///
     /// Note: data in key is split by word for strings ("inverted index"). Tags with binary data, and tags without any data, are
     /// not present in this table at all, as there is no way to search for specific data values for such tags
-    entries_by_data: Table<(Tag, Buffer), SmallVec<Entry>>,
+    entries_by_data: Table<(Tag, Buffer), SmallSortedSet<Entry>>,
     /// Lookup which tags are applied to entries
     ///
     /// Key: entry ID
     /// Value: list of tag names (no duplicates)
-    tags_by_entry: Table<Entry, SmallVec<Tag>>,
+    tags_by_entry: Table<Entry, SmallSortedSet<Tag>>,
     /// Lookup values of specific tag instances on specific entries
     ///
     /// Key: composite (entry ID + tag name)
@@ -160,9 +160,7 @@ impl<T: DbApi> TagsDatabase<T> {
         self.database
             .fetch_update(&mut self.entries_by_tag, &tag, |entries| {
                 let mut entries = entries.unwrap_or_default();
-                if let Err(i) = entries.binary_search(&entry) {
-                    entries.insert(i, entry);
-                }
+                let _ = entries.insert(entry);
                 Some(entries)
             })
             .into_diagnostic()?;
@@ -171,9 +169,7 @@ impl<T: DbApi> TagsDatabase<T> {
         self.database
             .fetch_update(&mut self.entries_by_data, &key, |entries| {
                 let mut entries = entries.unwrap_or_default();
-                if let Err(i) = entries.binary_search(&entry) {
-                    entries.insert(i, entry);
-                }
+                let _ = entries.insert(entry);
                 Some(entries)
             })
             .into_diagnostic()?;
@@ -182,12 +178,7 @@ impl<T: DbApi> TagsDatabase<T> {
         self.database
             .fetch_update(&mut self.tags_by_entry, &entry, |tags| {
                 let mut tags = tags.unwrap_or_default();
-                if !tags.contains(&tag) {
-                    tags.push(tag);
-                }
-                // if let Err(i) = tags.binary_search(tag) {
-                //     tags.insert(i, tag);
-                // }
+                let _ = tags.insert(tag);
                 Some(tags)
             })
             .into_diagnostic()?;

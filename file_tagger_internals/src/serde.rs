@@ -1,4 +1,9 @@
-use std::{convert::Infallible, ops::Deref, str::Utf8Error};
+use std::{
+    convert::Infallible,
+    io::Write,
+    ops::{Deref, DerefMut},
+    str::Utf8Error,
+};
 
 use byteview::ByteView;
 use estr::Estr;
@@ -356,56 +361,125 @@ const INLINE_SIZE: usize = cfg_select! {
 
 pub type SmallVec<T> = smallvec::SmallVec<[T; INLINE_SIZE]>;
 
+pub type SmallSortedSet<T> = crate::sortedset::SmallSortedSet<T, INLINE_SIZE>;
+
 impl<T> SizeHint for SmallVec<T> {
     const SIZE_HINT: Option<usize> = None;
 }
 
-/// hack
-pub trait ConstantSize {
-    /// hack
-    const SIZE: usize;
-}
-
-/// hack
-impl<T: SizeHint> ConstantSize for T {
-    /// hack
-    /// The unwrap being in a const expr makes it a compile error instead of a runtime panic
-    const SIZE: usize = T::SIZE_HINT.unwrap();
-}
-
-/// Only supported for element types with constant serialized size
 impl<T> AsBytes for SmallVec<T>
 where
-    T: AsBytes + ConstantSize,
+    T: AsBytes,
 {
     type Bytes = Buffer;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        let total_bytes = T::SIZE * self.len();
-        let mut buffer = ByteView::builder(total_bytes);
-        // We would use `as_chunks_mut` here but we can't because of bullshit
-        for (element, chunk) in self.iter().zip(buffer.chunks_exact_mut(T::SIZE)) {
-            let bytes = element.as_bytes();
-            chunk.copy_from_slice(bytes.as_ref());
+        if let Some(size) = T::SIZE_HINT {
+            let total_bytes = size * self.len();
+            let mut buffer = ByteView::builder(total_bytes);
+            // We would use `as_chunks_mut` here but we can't because of bullshit
+            for (element, chunk) in self.iter().zip(buffer.chunks_exact_mut(size)) {
+                let bytes = element.as_bytes();
+                chunk.copy_from_slice(bytes.as_ref());
+            }
+            Bytes::Owned(buffer.freeze().into())
+        } else {
+            // This `else` block means our element type has a variable serialized size, so each element needs a length prefix
+            let total_length_prefix_bytes = self.len() * std::mem::size_of::<u32>();
+
+            // `as_bytes` is only expensive if it does a heap allocation, which is rare (only this and tuples do that).
+            // Most impls are cheap reference-to-reference conversions, or just write out fixed-size arrays on the stack.
+            // So, serializing all of our elements twice is most likely not that costly.
+            let total_bytes: usize = self.iter().map(|element| element.as_bytes().len()).sum();
+            let total_bytes = total_bytes + total_length_prefix_bytes;
+            let mut bytes = ByteView::builder(total_bytes);
+
+            let mut buffer = bytes.deref_mut();
+            for element in self.iter() {
+                let bytes = element.as_bytes();
+                let length_prefix = (bytes.len() as u32).to_le_bytes();
+                // The `std::io::write` impl for byte slices is not a black box, unlike with
+                // most real IO, so we know that it should never return any errors in this case.
+                buffer.write_all(length_prefix.as_slice()).unwrap();
+                buffer.write_all(bytes.as_ref()).unwrap();
+            }
+
+            Bytes::Owned(bytes.freeze().into())
         }
-        Bytes::Owned(buffer.freeze().into())
     }
 }
 
-/// Only supported for element types with constant serialized size
+#[derive(Error, Debug)]
+pub enum SmallVecError<T: FromBytes> {
+    #[error("unexpected EOF while reading length prefix")]
+    LengthPrefixEof(#[source] UnexpectedEof),
+    #[error("unexpected EOF while deserializing list element")]
+    ElementEof(#[source] UnexpectedEof),
+    #[error("error deserializing list element")]
+    Deser(#[source] T::Error),
+}
+
 impl<T> FromBytes for SmallVec<T>
 where
-    T: FromBytes + ConstantSize,
+    T: FromBytes,
 {
-    type Error = T::Error;
+    type Error = SmallVecError<T>;
 
-    fn try_from(bytes: &mut Reader) -> Result<Self, T::Error> {
-        let elements = bytes.len() / T::SIZE;
-        let mut vec = Self::with_capacity(elements);
-        while !bytes.is_empty() {
-            vec.push(T::try_from(bytes)?);
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        if let Some(size) = T::SIZE_HINT {
+            let elements = bytes.len() / size;
+            let mut vec = Self::with_capacity(elements);
+            while !bytes.is_empty() {
+                let element = T::try_from(bytes).map_err(SmallVecError::Deser)?;
+                vec.push(element);
+            }
+            // No `shrink_to_fit` in this case because here we're able to allocate the exact number of elements up-front,
+            // so we won't be invoking the speculative overcompensating reallocation behaviour.
+            Ok(vec)
+        } else {
+            let mut vec = Self::new();
+            let mut bad_reader = None;
+            while !bytes.is_empty() {
+                let prefix = bytes.read_exact().map_err(SmallVecError::LengthPrefixEof)?;
+                let len = u32::from_le_bytes(prefix) as _;
+                let mut t = bytes.split_off(len).map_err(SmallVecError::ElementEof)?;
+                let element = T::try_from(&mut t).map_err(SmallVecError::Deser)?;
+                vec.push(element);
+
+                if !t.is_empty() {
+                    // If `T` doesn't actually consume all of its bytes, we make that visible here
+                    bad_reader = Some(t);
+                }
+            }
+
+            if let Some(bad_reader) = bad_reader {
+                *bytes = bad_reader;
+            }
+
+            vec.shrink_to_fit();
+            Ok(vec)
         }
-        Ok(vec)
+    }
+}
+
+impl<T> SizeHint for SmallSortedSet<T> {
+    const SIZE_HINT: Option<usize> = None;
+}
+
+impl<T: AsBytes> AsBytes for SmallSortedSet<T> {
+    type Bytes = Buffer;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        self.as_vec().as_bytes()
+    }
+}
+
+impl<T: FromBytes + Ord> FromBytes for SmallSortedSet<T> {
+    type Error = SmallVecError<T>;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        let vec = FromBytes::try_from(bytes)?;
+        Ok(Self::from_unsorted(vec))
     }
 }
 

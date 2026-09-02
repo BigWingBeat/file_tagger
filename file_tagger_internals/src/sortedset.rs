@@ -32,6 +32,12 @@ impl<T, const N: usize> SmallSortedSet<T, N> {
         }
     }
 
+    /// Returns a reference to the inner `SmallVec`
+    #[inline]
+    pub fn as_vec(&self) -> &SmallVec<[T; N]> {
+        &self.vec
+    }
+
     /// Consume `self` and return the sorted inner `SmallVec`
     #[inline]
     pub fn into_vec(self) -> SmallVec<[T; N]> {
@@ -247,6 +253,13 @@ impl<T, const N: usize> Deref for SmallSortedSet<T, N> {
 impl<T, const N: usize> AsRef<[T]> for SmallSortedSet<T, N> {
     #[inline]
     fn as_ref(&self) -> &[T] {
+        &self.vec
+    }
+}
+
+impl<T, const N: usize> AsRef<SmallVec<[T; N]>> for SmallSortedSet<T, N> {
+    #[inline]
+    fn as_ref(&self) -> &SmallVec<[T; N]> {
         &self.vec
     }
 }
