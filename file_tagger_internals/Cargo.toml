@@ -17,6 +17,7 @@ replace_with.workspace = true
 rfd.workspace = true
 scru64.workspace = true
 sled = { workspace = true, optional = true }
+small_sorted_set.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 

@@ -20,7 +20,8 @@ replace_with = "0.1"
 rfd = "0.17"
 scru64 = { version = "2.0", default-features = false, features = ["std"] }
 sled = { version = "0.34", features = ["compression"] }
-smallvec = { version = "1.15", features = ["union", "const_generics", "const_new"] }
+small_sorted_set = "1.0"
+smallvec = { version = "1.16", features = ["union", "const_generics", "const_new"] }
 thiserror = "2.0"
 usvg = { version = "0.47", default-features = false }
 xilem = { path = "../../../src/xilem/xilem" }

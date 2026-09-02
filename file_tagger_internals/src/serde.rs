@@ -361,7 +361,7 @@ const INLINE_SIZE: usize = cfg_select! {
 
 pub type SmallVec<T> = smallvec::SmallVec<[T; INLINE_SIZE]>;
 
-pub type SmallSortedSet<T> = crate::sortedset::SmallSortedSet<T, INLINE_SIZE>;
+pub type SmallSortedSet<T> = small_sorted_set::SmallSortedSet<T, INLINE_SIZE>;
 
 impl<T> SizeHint for SmallVec<T> {
     const SIZE_HINT: Option<usize> = None;
