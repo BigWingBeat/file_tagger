@@ -7,6 +7,9 @@ use std::{
 
 use smallvec::SmallVec;
 
+/// A collection that guarantees its elements are always in sorted order, and that there are no duplicate elements.
+/// Is stored inline on the stack for up to `N` elements, beyond which it automatically spills over to a heap allocation.
+///
 /// A bit like a `BTreeSet`, but backed by a single sorted `SmallVec<[T; N]>` instead of a tree of nodes.
 /// This makes it simpler, and faster to construct and read from, in exchange for mutations being slower.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
