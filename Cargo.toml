@@ -6,6 +6,7 @@ resolver = "3"
 authors = ["bigwingbeat"]
 edition = "2024"
 version = "0.1.0"
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 anymore = "1.0"

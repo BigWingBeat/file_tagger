@@ -4,6 +4,7 @@ description = "Frontend for file tagger built with Xilem"
 authors.workspace = true
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 file_tagger_internals = { path = "../file_tagger_internals" }

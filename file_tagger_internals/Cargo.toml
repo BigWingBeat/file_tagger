@@ -4,6 +4,7 @@ description = "All the non-gui code for file tagger"
 authors.workspace = true
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 anymore.workspace = true
