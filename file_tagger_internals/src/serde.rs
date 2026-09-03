@@ -409,7 +409,7 @@ where
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum SmallVecError<T: FromBytes> {
     #[error("unexpected EOF while reading length prefix")]
     LengthPrefixEof(#[source] UnexpectedEof),
@@ -417,6 +417,20 @@ pub enum SmallVecError<T: FromBytes> {
     ElementEof(#[source] UnexpectedEof),
     #[error("error deserializing list element")]
     Deser(#[source] T::Error),
+}
+
+/// Trait booouuuuuunnnds...!
+impl<T: FromBytes> std::fmt::Debug for SmallVecError<T>
+where
+    T::Error: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LengthPrefixEof(eof) => f.debug_tuple("LengthPrefixEof").field(eof).finish(),
+            Self::ElementEof(eof) => f.debug_tuple("ElementEof").field(eof).finish(),
+            Self::Deser(e) => f.debug_tuple("Deser").field(e).finish(),
+        }
+    }
 }
 
 impl<T> FromBytes for SmallVec<T>
@@ -548,6 +562,22 @@ pub enum TupleError<T: FromBytes, U: FromBytes> {
     First(#[source] T::Error),
     #[error("error deserializing second tuple element")]
     Second(#[source] U::Error),
+}
+
+/// You know...
+impl<T: FromBytes, U: FromBytes> std::fmt::Debug for TupleError<T, U>
+where
+    T::Error: std::fmt::Debug,
+    U::Error: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LengthPrefixEof(eof) => f.debug_tuple("LengthPrefixEof").field(eof).finish(),
+            Self::FirstEof(eof) => f.debug_tuple("FirstEof").field(eof).finish(),
+            Self::First(e) => f.debug_tuple("First").field(e).finish(),
+            Self::Second(e) => f.debug_tuple("Second").field(e).finish(),
+        }
+    }
 }
 
 impl<T: FromBytes, U: FromBytes> FromBytes for (T, U) {

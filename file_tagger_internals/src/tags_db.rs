@@ -149,11 +149,96 @@ impl<T: DbApi> TagsDatabase<T> {
         })
     }
 
+    /// If this tag already exists, this is effectively a no-op.
+    fn create_tag(&mut self, tag: Tag) -> miette::Result<()> {
+        // Update entries_by_tag: create empty value set (unless it already exists)
+        // entries_by_data: Not updated as new tags aren't applied to anything
+        // tags_by_entry: Not updated as new tags aren't applied to anything
+        // tag_values: Not updated as new tags aren't applied to anything
+        // Insert into tag_entries
+
+        self.database
+            .ensure_exists(&mut self.entries_by_tag, &tag)
+            .into_diagnostic()?;
+
+        let entry = self.generate_entry();
+
+        self.database
+            .insert(&mut self.tag_entries, &tag, &entry)
+            .into_diagnostic()?;
+
+        Ok(())
+    }
+
+    /// If the entry does not exist, this is effectively a no-op.
+    ///
+    /// Potentially very destructive! Use with care.
+    fn delete_entry(&mut self, entry: Entry) -> miette::Result<()> {
+        todo!()
+    }
+
+    /// If the tag does not exist, this is effectively a no-op.
+    ///
+    /// Potentially very destructive! Use with care.
+    fn delete_tag(&mut self, tag: Tag) -> miette::Result<()> {
+        // Take from entries_by_tag: taken value is used to update tags_by_entry
+        // Remove from entries_by_data: Prefix search to find all keys to remove
+        // Update tags_by_entry: Use value taken from entries_by_tag to find all keys to update, then remove tag from value sets
+        // Remove from tag_values: Use value taken from entries_by_tag to find all keys to remove
+        // Take from tag_entries: taken value is used to delete the tag entry
+
+        // TODO: also delete the tag entry
+
+        let entries = self
+            .database
+            .take(&mut self.entries_by_tag, &tag)
+            .into_diagnostic()?
+            .unwrap_or_default();
+
+        for result in self.database.prefix(&self.entries_by_data, &tag) {
+            let (key, _) = result.into_diagnostic()?;
+            self.database
+                .remove(&mut self.entries_by_data, &key)
+                .into_diagnostic()?;
+        }
+
+        for &entry in &entries {
+            self.database
+                .fetch_update(&mut self.tags_by_entry, &entry, |mut values| {
+                    if let Some(values) = &mut values {
+                        values.remove(&tag);
+                    }
+                    values
+                })
+                .into_diagnostic()?;
+
+            let key = (entry, tag);
+            self.database
+                .remove(&mut self.tag_values, &key)
+                .into_diagnostic()?;
+        }
+
+        let entry = self
+            .database
+            .take(&mut self.tag_entries, &tag)
+            .into_diagnostic()?;
+
+        if let Some(entry) = entry {
+            self.delete_entry(entry)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// If this tag is already applied to this entry, this is effectively a no-op. For tags with values, it updates the value.
+    ///
+    /// You can think of this as creating a new instance of the tag.
     fn insert_tag_on_entry(&mut self, tag: Tag, entry: Entry) -> miette::Result<()> {
         // Update entries_by_tag: insert entry into value set
         // Update entries_by_data: insert entry into value set
         // Update tags_by_entry: insert tag into value set
         // Insert into tag_values
+        // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
 
         let value = Buffer::default();
 
@@ -316,6 +401,12 @@ impl ActiveTransactionDatabaseState {
 }
 
 pub trait SmallSortedSetTableExt {
+    fn ensure_exists<Key: AsBytes, Value: Serde + Ord>(
+        &mut self,
+        table: &mut Table<Key, SmallSortedSet<Value>>,
+        key: &Key,
+    ) -> Result<SmallSortedSet<Value>, DeserError<SmallSortedSet<Value>>>;
+
     fn fetch_update_single<Key: AsBytes, Value: Serde + Clone + Ord>(
         &mut self,
         table: &mut Table<Key, SmallSortedSet<Value>>,
@@ -325,6 +416,16 @@ pub trait SmallSortedSetTableExt {
 }
 
 impl<T: DbApi> SmallSortedSetTableExt for T {
+    fn ensure_exists<Key: AsBytes, Value: Serde + Ord>(
+        &mut self,
+        table: &mut Table<Key, SmallSortedSet<Value>>,
+        key: &Key,
+    ) -> Result<SmallSortedSet<Value>, DeserError<SmallSortedSet<Value>>> {
+        self.fetch_update(table, key, |values| Some(values.unwrap_or_default()))
+            // The above closure always returns `Some`
+            .map(Option::unwrap)
+    }
+
     fn fetch_update_single<Key: AsBytes, Value: Serde + Clone + Ord>(
         &mut self,
         table: &mut Table<Key, SmallSortedSet<Value>>,
