@@ -43,6 +43,7 @@ pub trait TableImpl {
     fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>>;
     fn insert(&mut self, key: impl AsRef<[u8]>, value: impl Into<Buffer>) -> Result<()>;
     fn remove(&mut self, key: impl AsRef<[u8]>) -> Result<()>;
+    fn take(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>>;
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, prefix: impl AsRef<[u8]>) -> Self::Iter;
@@ -70,6 +71,7 @@ pub trait TransactionImpl: Sized {
     ) -> Result<()>;
 
     fn remove(&mut self, table: &mut Self::Table, key: impl Into<Buffer>) -> Result<()>;
+    fn take(&mut self, table: &mut Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>>;
     fn first_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn last_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>>;
     fn prefix(&self, table: &Self::Table, prefix: impl AsRef<[u8]>) -> Self::Iter;

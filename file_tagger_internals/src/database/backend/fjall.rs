@@ -123,6 +123,10 @@ impl super::TableImpl for Table {
         self.0.remove(key.as_ref())
     }
 
+    fn take(&mut self, key: impl AsRef<[u8]>) -> Result<Option<Buffer>> {
+        self.0.take(key.as_ref())
+    }
+
     #[inline(always)]
     fn first_kv(&self) -> Result<Option<(Buffer, Buffer)>> {
         self.0
@@ -202,6 +206,10 @@ impl super::TransactionImpl for Transaction {
     fn remove(&mut self, table: &mut Self::Table, key: impl Into<Buffer>) -> Result<()> {
         self.0.remove(&table.0, key);
         Ok(())
+    }
+
+    fn take(&mut self, table: &mut Self::Table, key: impl Into<Buffer>) -> Result<Option<Buffer>> {
+        self.0.take(&table.0, key)
     }
 
     fn first_kv(&self, table: &Self::Table) -> Result<Option<(Buffer, Buffer)>> {

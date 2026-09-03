@@ -104,6 +104,13 @@ pub trait DbApi {
         key: &Key,
     ) -> backend::Result<()>;
 
+    /// Remove a key and its associated value from the table, and return the value if it existed.
+    fn take<Key: AsBytes, Value: FromBytes>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+    ) -> Result<Option<Value>, DeserError<Value>>;
+
     /// Retrieve the key that is lexicographically first in the table, and the associated value.
     fn first_kv<Key: FromBytes, Value: FromBytes>(
         &self,
@@ -163,6 +170,14 @@ impl DbApi for NoTransaction {
         key: &Key,
     ) -> backend::Result<()> {
         table.0.remove(key.as_bytes())
+    }
+
+    fn take<Key: AsBytes, Value: FromBytes>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+    ) -> Result<Option<Value>, DeserError<Value>> {
+        deser_result(table.0.take(key.as_bytes()))
     }
 
     fn first_kv<Key: FromBytes, Value: FromBytes>(
@@ -233,6 +248,18 @@ impl DbApi for Transaction {
         key: &Key,
     ) -> backend::Result<()> {
         TransactionImpl::remove(self, &mut table.0, key.as_bytes().as_ref())
+    }
+
+    fn take<Key: AsBytes, Value: FromBytes>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+    ) -> Result<Option<Value>, DeserError<Value>> {
+        deser_result(TransactionImpl::take(
+            self,
+            &mut table.0,
+            key.as_bytes().as_ref(),
+        ))
     }
 
     fn first_kv<Key: FromBytes, Value: FromBytes>(
@@ -317,6 +344,14 @@ impl<T: DbApi> DbApi for Database<T> {
         key: &Key,
     ) -> backend::Result<()> {
         self.transaction.remove(table, key)
+    }
+
+    fn take<Key: AsBytes, Value: FromBytes>(
+        &mut self,
+        table: &mut Table<Key, Value>,
+        key: &Key,
+    ) -> Result<Option<Value>, DeserError<Value>> {
+        self.transaction.take(table, key)
     }
 
     fn first_kv<Key: FromBytes, Value: FromBytes>(
