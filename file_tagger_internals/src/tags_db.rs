@@ -18,7 +18,7 @@ use crate::{
         self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
     },
     serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, Prefixable, Reader, SizeHint, SmallSortedSet,
+        AsBytes, Bytes, DerefProxy, FromBytes, Prefixable, Reader, Serde, SizeHint, SmallSortedSet,
         UnexpectedEof,
     },
 };
@@ -150,37 +150,25 @@ impl<T: DbApi> TagsDatabase<T> {
     }
 
     fn insert_tag_on_entry(&mut self, tag: Tag, entry: Entry) -> miette::Result<()> {
-        // Update entries_by_tag: append entry to value (unless already present)
-        // Update entries_by_data: append entry to value (unless already present)
-        // Update tags_by_entry: append tag to value (unless already present)
+        // Update entries_by_tag: insert entry into value set
+        // Update entries_by_data: insert entry into value set
+        // Update tags_by_entry: insert tag into value set
         // Insert into tag_values
 
         let value = Buffer::default();
 
         self.database
-            .fetch_update(&mut self.entries_by_tag, &tag, |entries| {
-                let mut entries = entries.unwrap_or_default();
-                let _ = entries.insert(entry);
-                Some(entries)
-            })
+            .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
             .into_diagnostic()?;
 
         let key = (tag, value);
         self.database
-            .fetch_update(&mut self.entries_by_data, &key, |entries| {
-                let mut entries = entries.unwrap_or_default();
-                let _ = entries.insert(entry);
-                Some(entries)
-            })
+            .fetch_update_single(&mut self.entries_by_data, &key, &entry)
             .into_diagnostic()?;
-        let (tag, value) = key;
 
+        let (tag, value) = key;
         self.database
-            .fetch_update(&mut self.tags_by_entry, &entry, |tags| {
-                let mut tags = tags.unwrap_or_default();
-                let _ = tags.insert(tag);
-                Some(tags)
-            })
+            .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
             .into_diagnostic()?;
 
         let key = (entry, tag);
@@ -324,6 +312,32 @@ impl ActiveTransactionDatabaseState {
             database: self.database.rollback(),
             folder: self.folder,
         }
+    }
+}
+
+pub trait SmallSortedSetTableExt {
+    fn fetch_update_single<Key: AsBytes, Value: Serde + Clone + Ord>(
+        &mut self,
+        table: &mut Table<Key, SmallSortedSet<Value>>,
+        key: &Key,
+        value: &Value,
+    ) -> Result<SmallSortedSet<Value>, DeserError<SmallSortedSet<Value>>>;
+}
+
+impl<T: DbApi> SmallSortedSetTableExt for T {
+    fn fetch_update_single<Key: AsBytes, Value: Serde + Clone + Ord>(
+        &mut self,
+        table: &mut Table<Key, SmallSortedSet<Value>>,
+        key: &Key,
+        value: &Value,
+    ) -> Result<SmallSortedSet<Value>, DeserError<SmallSortedSet<Value>>> {
+        self.fetch_update(table, key, |values| {
+            let mut values = values.unwrap_or_default();
+            let _ = values.insert(value.clone());
+            Some(values)
+        })
+        // The above closure always returns `Some`
+        .map(Option::unwrap)
     }
 }
 
