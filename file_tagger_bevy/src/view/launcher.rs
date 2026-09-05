@@ -24,14 +24,11 @@ where
             column_gap: px(10.0),
         }
         Children [
-            (
-                recent_list_portal(state)
-                Node { width: Val::Percent(100.0) }
-            ),
-            (
-                open_create_buttons(state)
-                Node { width: Val::Percent(100.0), }
-            ),
+            recent_list_portal(state)
+            Node { width: Val::Percent(100.0) };
+
+            open_create_buttons(state)
+            Node { width: Val::Percent(100.0), };
         ]
     }
 }
@@ -47,21 +44,18 @@ where
             row_gap: px(10.0),
         }
         Children [
-            (
-                label("Open Recent")
-                TextFont {
-                    font_size: FontSize::Px(20.0),
-                    weight: FontWeight::BOLD
-                }
-            ),
-            (
-                Node {
-                    overflow: Overflow::scroll_y()
-                }
-                Children [
-                    recent_list(state)
-                ]
-            )
+            label("Open Recent")
+            TextFont {
+                font_size: FontSize::Px(20.0),
+                weight: FontWeight::BOLD
+            };
+
+            Node {
+                overflow: Overflow::scroll_y()
+            }
+            Children [
+                recent_list(state)
+            ];
         ]
     }
 }
@@ -91,12 +85,11 @@ where
                                     flex_direction: FlexDirection::Column,
                                 }
                                 Children [
-                                    (
-                                        label(folder.name.to_string_lossy().into_owned())
-                                        TextFont {
-                                            weight: FontWeight::BOLD
-                                        }
-                                    ),
+                                    label(folder.name.to_string_lossy().into_owned())
+                                    TextFont {
+                                        weight: FontWeight::BOLD
+                                    };
+
                                     label(path.to_string_lossy().into_owned())
                                 ]
                             }
@@ -128,88 +121,77 @@ where
             row_gap: px(10.0)
         }
         Children [
-            (
+            Node {
+                column_gap: px(10.0),
+            }
+            Children [
                 Node {
-                    column_gap: px(10.0),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Start,
+                    width: Val::Percent({200.0 / 3.0}),
                 }
                 Children [
-                    (
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Start,
-                            width: Val::Percent({200.0 / 3.0}),
-                        }
-                        Children [
-                            (
-                                label("Open Folder As Database")
-                                TextFont {
-                                    weight: FontWeight::BOLD
-                                }
-                            ),
-                            label("Open or create a database in a folder")
-                        ]
-                    ),
-                    (
-                        button(bsn!(label("Open")))
-                        Node {
-                            height: Val::Percent(100.0),
-                            width: Val::Percent({100.0 / 3.0}),
-                        }
-                        on(
-                            |on: On<Activate>, mut commands: Commands, mut state: LensState<L>| {
-                                state.start_open_dialog();
-                                commands.entity(on.entity).apply_scene(task(
-                                    file_tagger_internals::open_folder_as_db,
-                                    |In(result): In<_>, mut state: LensState<L>| {
-                                        state.handle_open_dialog(result);
-                                    },
-                                ));
-                            },
-                        )
-                    )
-                ]
-            ),
-            (
+                    label("Open Folder As Database")
+                    TextFont {
+                        weight: FontWeight::BOLD
+                    };
+
+                    label("Open or create a database in a folder")
+                ];
+
+                button(bsn!(label("Open")))
                 Node {
-                    column_gap: px(10.0),
+                    height: Val::Percent(100.0),
+                    width: Val::Percent({100.0 / 3.0}),
+                }
+                on(
+                    |on: On<Activate>, mut commands: Commands, mut state: LensState<L>| {
+                        state.start_open_dialog();
+                        commands.entity(on.entity).apply_scene(task(
+                            file_tagger_internals::open_folder_as_db,
+                            |In(result): In<_>, mut state: LensState<L>| {
+                                state.handle_open_dialog(result);
+                            },
+                        ));
+                    },
+                );
+            ];
+
+            Node {
+                column_gap: px(10.0),
+            }
+            Children [
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Start,
+                    width: Val::Percent({200.0 / 3.0}),
                 }
                 Children [
-                    (
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Start,
-                            width: Val::Percent({200.0 / 3.0}),
-                        }
-                        Children [
-                            (
-                                label("Create New Database")
-                                TextFont {
-                                    weight: FontWeight::BOLD
-                                }
-                            ),
-                            label("Create a new folder with a new database")
-                        ]
-                    ),
-                    (
-                        button(bsn!(label("Create")))
-                        Node {
-                            height: Val::Percent(100.0),
-                            width: Val::Percent({100.0 / 3.0}),
-                        }
-                        on(
-                            |on: On<Activate>, mut commands: Commands, mut state: LensState<L>| {
-                                state.start_create_dialog();
-                                commands.entity(on.entity).apply_scene(task(
-                                    file_tagger_internals::create_folder_and_db,
-                                    |In(result): In<_>, mut state: LensState<L>| {
-                                        state.handle_create_dialog(result);
-                                    },
-                                ));
+                    label("Create New Database")
+                    TextFont {
+                        weight: FontWeight::BOLD
+                    };
+
+                    label("Create a new folder with a new database")
+                ];
+
+                button(bsn!(label("Create")))
+                Node {
+                    height: Val::Percent(100.0),
+                    width: Val::Percent({100.0 / 3.0}),
+                }
+                on(
+                    |on: On<Activate>, mut commands: Commands, mut state: LensState<L>| {
+                        state.start_create_dialog();
+                        commands.entity(on.entity).apply_scene(task(
+                            file_tagger_internals::create_folder_and_db,
+                            |In(result): In<_>, mut state: LensState<L>| {
+                                state.handle_create_dialog(result);
                             },
-                        )
-                    )
-                ]
-            ),
+                        ));
+                    },
+                );
+            ];
         ]
     }
 }

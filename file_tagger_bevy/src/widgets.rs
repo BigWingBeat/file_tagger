@@ -123,12 +123,10 @@ where
     bsn! {
         text_input(callback.clone())
         Children [
-            (
-                {button}
-                on(move |_: On<Activate>, mut commands: Commands| {
-                    commands.run_system_cached(callback.clone());
-                })
-            ),
+            {button}
+            on(move |_: On<Activate>, mut commands: Commands| {
+                commands.run_system_cached(callback.clone());
+            })
         ]
     }
 }

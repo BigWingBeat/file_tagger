@@ -91,7 +91,7 @@ fn centered_flex_box(seq: impl SceneList) -> impl Scene {
                 align_items: AlignItems::Center,
                 border: px(3),
                 border_radius: px(6),
-                padding: px(16)
+                padding: px(16),
             }
             BorderColor::from(ZINC_600)
             BackgroundColor(ZINC_700)
@@ -106,7 +106,7 @@ pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {}
 // Overlay views for `ActiveOverlay` states
 
 fn spinner_overlay(state: LensState<Spinner>) -> impl Scene + use<> {
-    bsn!(centered_flex_box(bsn_list![Text("TODO: Insert Spinner Here"), Text("Waiting for dialog...")]) ZIndex(1))
+    bsn!(centered_flex_box(bsn_list![Text("TODO: Insert Spinner Here"); Text("Waiting for dialog...")]) ZIndex(1))
 }
 
 fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
@@ -114,24 +114,21 @@ fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
     let e = state.deref();
 
     bsn!(centered_flex_box(bsn_list![
-        (
-            label(format!("{e:?}"))
-            TextFont {
-                font: FontSourceTemplate::Monospace,
-                font_size: px(20),
-                weight: FontWeight::BOLD,
+        label(format!("{e:?}"))
+        TextFont {
+            font: FontSourceTemplate::Monospace,
+            font_size: px(20),
+            weight: FontWeight::BOLD,
+        }
+        TextColor(RED);
+
+        button(bsn!(label("Oops")))
+        on(move |_: On<Activate>, mut state: NonSendMut<ActiveView>, mut exit: MessageWriter<AppExit>| {
+            if is_unrecoverable {
+                exit.write(AppExit::from_code(1));
+            } else {
+                state.set_active_overlay(ActiveOverlay::None);
             }
-            TextColor(RED)
-        ),
-        (
-            button(bsn!(label("Oops")))
-            on(move |_: On<Activate>, mut state: NonSendMut<ActiveView>, mut exit: MessageWriter<AppExit>| {
-                if is_unrecoverable {
-                    exit.write(AppExit::from_code(1));
-                } else {
-                    state.set_active_overlay(ActiveOverlay::None);
-                }
-            })
-        ),
+        });
     ]) ZIndex(1))
 }
