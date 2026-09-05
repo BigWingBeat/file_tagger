@@ -106,7 +106,7 @@ pub fn error_view(state: LensState<UnrecoverableError>) -> impl Scene + use<> {}
 // Overlay views for `ActiveOverlay` states
 
 fn spinner_overlay(state: LensState<Spinner>) -> impl Scene + use<> {
-    bsn!(centered_flex_box(bsn_list![Text("TODO: Insert Spinner Here"); Text("Waiting for dialog...")]) ZIndex(1))
+    bsn!(centered_flex_box(bsn_list![Text("TODO: Insert Spinner Here") -- Text("Waiting for dialog...")]) ZIndex(1))
 }
 
 fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
@@ -120,8 +120,8 @@ fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
             font_size: px(20),
             weight: FontWeight::BOLD,
         }
-        TextColor(RED);
-
+        TextColor(RED)
+        --
         button(bsn!(label("Oops")))
         on(move |_: On<Activate>, mut state: NonSendMut<ActiveView>, mut exit: MessageWriter<AppExit>| {
             if is_unrecoverable {
@@ -129,6 +129,6 @@ fn error_overlay(state: LensState<Report>) -> impl Scene + use<> {
             } else {
                 state.set_active_overlay(ActiveOverlay::None);
             }
-        });
+        })
     ]) ZIndex(1))
 }

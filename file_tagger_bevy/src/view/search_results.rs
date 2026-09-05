@@ -13,10 +13,13 @@ use super::centered_box;
 
 pub fn search_results_view(mut state: LensState<SearchResults>) -> impl Scene + use<> {
     centered_box(bsn_list![
-        active_folder_name(&state.database);
-        search_bar(state.deref_mut());
-        edit_buttons(state.deref_mut());
-        search_results(state.deref_mut());
+        active_folder_name(&state.database)
+        --
+        search_bar(state.deref_mut())
+        --
+        edit_buttons(state.deref_mut())
+        --
+        search_results(state.deref_mut())
     ])
 }
 

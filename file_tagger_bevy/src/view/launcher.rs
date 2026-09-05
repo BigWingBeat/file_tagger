@@ -25,10 +25,10 @@ where
         }
         Children [
             recent_list_portal(state)
-            Node { width: Val::Percent(100.0) };
-
+            Node { width: Val::Percent(100.0) }
+            --
             open_create_buttons(state)
-            Node { width: Val::Percent(100.0), };
+            Node { width: Val::Percent(100.0) }
         ]
     }
 }
@@ -48,14 +48,14 @@ where
             TextFont {
                 font_size: FontSize::Px(20.0),
                 weight: FontWeight::BOLD
-            };
-
+            }
+            --
             Node {
                 overflow: Overflow::scroll_y()
             }
             Children [
                 recent_list(state)
-            ];
+            ]
         ]
     }
 }
@@ -88,8 +88,8 @@ where
                                     label(folder.name.to_string_lossy().into_owned())
                                     TextFont {
                                         weight: FontWeight::BOLD
-                                    };
-
+                                    }
+                                    --
                                     label(path.to_string_lossy().into_owned())
                                 ]
                             }
@@ -134,11 +134,11 @@ where
                     label("Open Folder As Database")
                     TextFont {
                         weight: FontWeight::BOLD
-                    };
-
+                    }
+                    --
                     label("Open or create a database in a folder")
-                ];
-
+                ]
+                --
                 button(bsn!(label("Open")))
                 Node {
                     height: Val::Percent(100.0),
@@ -154,9 +154,9 @@ where
                             },
                         ));
                     },
-                );
-            ];
-
+                )
+            ]
+            --
             Node {
                 column_gap: px(10.0),
             }
@@ -170,11 +170,11 @@ where
                     label("Create New Database")
                     TextFont {
                         weight: FontWeight::BOLD
-                    };
-
+                    }
+                    --
                     label("Create a new folder with a new database")
-                ];
-
+                ]
+                --
                 button(bsn!(label("Create")))
                 Node {
                     height: Val::Percent(100.0),
@@ -190,8 +190,8 @@ where
                             },
                         ));
                     },
-                );
-            ];
+                )
+            ]
         ]
     }
 }

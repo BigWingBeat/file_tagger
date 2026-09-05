@@ -17,11 +17,15 @@ use super::launcher::launcher;
 
 pub fn search_menu_view(mut state: LensState<SearchMenu>) -> impl Scene + use<> {
     centered_box(bsn_list![
-        active_folder_name(&state.database);
-        search_bar(state.deref_mut());
-        edit_buttons(state.deref_mut());
-        launcher(state.deref_mut());
-        flex_spacer();
+        active_folder_name(&state.database)
+        --
+        search_bar(state.deref_mut())
+        --
+        edit_buttons(state.deref_mut())
+        --
+        launcher(state.deref_mut())
+        --
+        flex_spacer()
     ])
 }
 
@@ -74,8 +78,8 @@ where
                 |on: On<Activate>, mut state: LensState<S>| {
                     state.edit_entries();
                 },
-            );
-
+            )
+            --
             button(bsn!(label("Import Files")))
             on(
                 |on: On<Activate>, mut commands: Commands, mut state: LensState<S>| {
@@ -87,7 +91,7 @@ where
                         },
                     ));
                 },
-            );
+            )
         ]
     }
     // flex_row((
