@@ -1,13 +1,45 @@
-use std::{convert::Infallible, io::Write, ops::DerefMut, str::Utf8Error};
+use std::{convert::Infallible, str::Utf8Error};
 
 use byteview::ByteView;
 use estr::Estr;
 use thiserror::Error;
 
+use crate::serde::{DerefProxy, LENGTH_PREFIX_BYTES, Writer};
+
 use super::{
     AsBytes, Buffer, Bytes, FromBytes, Prefixable, Reader, SizeHint, SmallSortedSet, SmallVec,
     UnexpectedEof,
 };
+
+/* Primitive numerical types */
+
+macro_rules! impl_serde_numerical {
+    ($($ty:ty),* $(,)*) => {
+        $(
+            impl SizeHint for $ty {
+                const SIZE_HINT: Option<usize> = Some(size_of::<Self>());
+            }
+
+            impl AsBytes for $ty {
+                type Bytes = DerefProxy<[u8; size_of::<Self>()]>;
+
+                fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+                    Bytes::Owned(self.to_le_bytes().into())
+                }
+            }
+
+            impl FromBytes for $ty {
+                type Error = UnexpectedEof;
+
+                fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+                    bytes.read_exact().map(Self::from_le_bytes)
+                }
+            }
+        )*
+    };
+}
+
+impl_serde_numerical!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64);
 
 /* Buffer */
 
@@ -76,46 +108,38 @@ where
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         if let Some(size) = T::SIZE_HINT {
             let total_bytes = size * self.len();
-            let mut buffer = ByteView::builder(total_bytes);
+            let mut writer = Writer::new(total_bytes);
             // We would use `as_chunks_mut` here but we can't because of bullshit
-            for (element, chunk) in self.iter().zip(buffer.chunks_exact_mut(size)) {
+            for element in self {
                 let bytes = element.as_bytes();
-                chunk.copy_from_slice(bytes.as_ref());
+                writer.write(bytes);
             }
-            Bytes::Owned(buffer.freeze().into())
+            Bytes::Owned(writer.finish().unwrap())
         } else {
             // This `else` block means our element type has a variable serialized size, so each element needs a length prefix
-            let total_length_prefix_bytes = self.len() * std::mem::size_of::<u32>();
+            let total_length_prefix_bytes = self.len() * LENGTH_PREFIX_BYTES;
 
             // `as_bytes` is only expensive if it does a heap allocation, which is rare (mostly just collection types do).
             // Most impls are cheap reference-to-reference conversions, or just write out fixed-size arrays on the stack.
             // So, serializing all of our elements twice is most likely not that costly.
             let total_bytes: usize = self.iter().map(|element| element.as_bytes().len()).sum();
             let total_bytes = total_bytes + total_length_prefix_bytes;
-            let mut bytes = ByteView::builder(total_bytes);
 
-            // The remainder of un-written bytes, that will shrink as elements are written, while `bytes` retains the whole thing
-            let mut buffer = bytes.deref_mut();
-            for element in self.iter() {
+            let mut writer = Writer::new(total_bytes);
+            for element in self {
                 let bytes = element.as_bytes();
-                let length_prefix = (bytes.len() as u32).to_le_bytes();
-                // The `std::io::write` impl for byte slices is not a black box, unlike with
-                // most real IO, so we know that it should never return any errors in this case.
-                buffer.write_all(length_prefix.as_slice()).unwrap();
-                buffer.write_all(bytes.as_ref()).unwrap();
+                writer.write_with_length_prefix(bytes);
             }
 
-            Bytes::Owned(bytes.freeze().into())
+            Bytes::Owned(writer.finish().unwrap())
         }
     }
 }
 
 #[derive(Error)]
 pub enum SmallVecError<T: FromBytes> {
-    #[error("unexpected EOF while reading length prefix")]
-    LengthPrefixEof(#[source] UnexpectedEof),
     #[error("unexpected EOF while deserializing list element")]
-    ElementEof(#[source] UnexpectedEof),
+    Eof(#[from] UnexpectedEof),
     #[error("error deserializing list element")]
     Deser(#[source] T::Error),
 }
@@ -127,8 +151,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::LengthPrefixEof(eof) => f.debug_tuple("LengthPrefixEof").field(eof).finish(),
-            Self::ElementEof(eof) => f.debug_tuple("ElementEof").field(eof).finish(),
+            Self::Eof(eof) => f.debug_tuple("Eof").field(eof).finish(),
             Self::Deser(e) => f.debug_tuple("Deser").field(e).finish(),
         }
     }
@@ -155,9 +178,7 @@ where
             let mut vec = Self::new();
             let mut bad_reader = None;
             while !bytes.is_empty() {
-                let prefix = bytes.read_exact().map_err(SmallVecError::LengthPrefixEof)?;
-                let len = u32::from_le_bytes(prefix) as _;
-                let mut t = bytes.split_off(len).map_err(SmallVecError::ElementEof)?;
+                let mut t = bytes.read_length_prefix_and_split_off()?;
                 let element = T::try_from(&mut t).map_err(SmallVecError::Deser)?;
                 vec.push(element);
 
@@ -224,13 +245,11 @@ impl<T: AsBytes, U: AsBytes> AsBytes for (T, U) {
         let u = u.as_bytes();
         if T::SIZE_HINT.is_none() {
             // If `T` has a variable size, it needs a length prefix (`U` doesn't because it just assumes the entire rest of the buffer)
-            let prefix = (t.len() as u32).to_le_bytes();
-            let len = prefix.len() + t.len() + u.len();
-            let mut bytes = ByteView::builder(len);
-            bytes[..prefix.len()].copy_from_slice(&prefix);
-            bytes[prefix.len()..(prefix.len() + t.len())].copy_from_slice(t.as_ref());
-            bytes[(prefix.len() + t.len())..].copy_from_slice(u.as_ref());
-            Bytes::Owned(bytes.freeze().into())
+            let total_bytes = LENGTH_PREFIX_BYTES + t.len() + u.len();
+            let mut writer = Writer::new(total_bytes);
+            writer.write_with_length_prefix(t);
+            writer.write(u);
+            Bytes::Owned(writer.finish().unwrap())
         } else {
             // A built-in method that does exactly what we're manually doing above, but only for 2 input slices
             Bytes::Owned(ByteView::fused(t.as_ref(), u.as_ref()).into())
@@ -240,11 +259,8 @@ impl<T: AsBytes, U: AsBytes> AsBytes for (T, U) {
 
 #[derive(Error)]
 pub enum TupleError<T: FromBytes, U: FromBytes> {
-    // None of these can be `#[from]` because ugh (see BytesIntoError *AND* DbError)
-    #[error("unexpected EOF while reading length prefix")]
-    LengthPrefixEof(#[source] UnexpectedEof),
     #[error("unexpected EOF while deserializing first tuple element")]
-    FirstEof(#[source] UnexpectedEof),
+    Eof(#[from] UnexpectedEof),
     #[error("error deserializing first tuple element")]
     First(#[source] T::Error),
     #[error("error deserializing second tuple element")]
@@ -259,8 +275,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::LengthPrefixEof(eof) => f.debug_tuple("LengthPrefixEof").field(eof).finish(),
-            Self::FirstEof(eof) => f.debug_tuple("FirstEof").field(eof).finish(),
+            Self::Eof(eof) => f.debug_tuple("Eof").field(eof).finish(),
             Self::First(e) => f.debug_tuple("First").field(e).finish(),
             Self::Second(e) => f.debug_tuple("Second").field(e).finish(),
         }
@@ -273,9 +288,7 @@ impl<T: FromBytes, U: FromBytes> FromBytes for (T, U) {
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
         if T::SIZE_HINT.is_none() {
             // If `T` has a variable size, we have a length prefix
-            let prefix = bytes.read_exact().map_err(TupleError::LengthPrefixEof)?;
-            let len = u32::from_le_bytes(prefix) as _;
-            let mut t = bytes.split_off(len).map_err(TupleError::FirstEof)?;
+            let mut t = bytes.read_length_prefix_and_split_off()?;
 
             let result = (
                 T::try_from(&mut t).map_err(TupleError::First)?,
