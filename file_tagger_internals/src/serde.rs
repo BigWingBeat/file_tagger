@@ -5,6 +5,8 @@ use thiserror::Error;
 
 mod impls;
 
+pub use impls::{SmallVecError, TupleError};
+
 use crate::Buffer;
 
 /// Like [`Deref`], but with extra `AsRef<[u8]>` bounds built-in so we can just put
@@ -148,17 +150,24 @@ impl<'a> Reader<'a> {
         UnexpectedEof(self.total_read() + bytes, self.initial_total_bytes)
     }
 
+    /// Consume one (1) byte from the buffer, or return an error if the buffer doesn't have enough bytes.
+    pub fn read_one(&mut self) -> Result<u8, UnexpectedEof> {
+        self.bytes
+            .split_off_first()
+            .copied()
+            .ok_or_else(|| self.expected_more_bytes(1))
+    }
+
     /// Consume a const number of bytes from the buffer, or return an error if the buffer doesn't have enough bytes.
     /// If the number of bytes to read is not a const, use [`split_off`] instead.
     pub fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], UnexpectedEof> {
         // There isn't any chunks-type method that shrinks the input slice like `split_off`, so we must do this manually
-        let bytes = self
-            .bytes
-            .split_off(..N)
-            .ok_or_else(|| self.expected_more_bytes(N))?;
-        let mut buf = [0; N];
-        buf.copy_from_slice(bytes);
-        Ok(buf)
+        if let Some((&chunk, remainder)) = self.bytes.split_first_chunk() {
+            self.bytes = remainder;
+            Ok(chunk)
+        } else {
+            Err(self.expected_more_bytes(N))
+        }
     }
 
     /// Consume a little-endian u32 length prefix from the buffer, or return an error if the buffer doesn't have enough bytes.
@@ -214,6 +223,7 @@ pub struct Writer {
 pub struct IncorrectBufferSize(usize, usize);
 
 impl Writer {
+    /// Allocate exactly `size` bytes to be written
     #[inline]
     pub fn new(size: usize) -> Self {
         Self {
@@ -258,30 +268,35 @@ impl Writer {
         }
     }
 
+    /// Write 1 byte
     #[inline]
     pub fn write_one(&mut self, byte: u8) {
         self.try_write_array(&[byte]);
     }
 
+    /// Write some bytes
     #[inline]
     pub fn write(&mut self, bytes: impl AsRef<[u8]>) {
         let bytes = bytes.as_ref();
         self.try_write(bytes);
     }
 
+    /// Write a constant number of bytes
     #[inline]
     pub fn write_fixed<const N: usize>(&mut self, bytes: &[u8; N]) {
         self.try_write_array(bytes);
     }
 
+    /// Write a little-endian u32 length prefix, followed by that many bytes
     #[inline]
     pub fn write_with_length_prefix(&mut self, bytes: impl AsRef<[u8]>) {
         let bytes = bytes.as_ref();
-        let length_prefix = bytes.len().to_le_bytes();
+        let length_prefix = (bytes.len() as u32).to_le_bytes();
         self.try_write_array(&length_prefix);
         self.try_write(bytes);
     }
 
+    /// Return the written bytes, or an error if the number of written bytes did not match the number of initially allocated bytes
     #[inline]
     pub fn finish(self) -> Result<Buffer, IncorrectBufferSize> {
         if self.written != self.buffer.len() {
@@ -291,6 +306,8 @@ impl Writer {
         }
     }
 }
+
+pub const LENGTH_PREFIX_BYTES: usize = size_of::<u32>();
 
 /// Does this type have a constant size (in bytes) when serialized, or is it variable?
 /// If `SIZE_HINT` is `Some(_)`, types should always consume exactly that many bytes from the input buffer in their `FromBytes`
