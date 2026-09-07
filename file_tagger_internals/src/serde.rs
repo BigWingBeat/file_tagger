@@ -102,6 +102,12 @@ impl<B: HasBytes> AsRef<[u8]> for Bytes<'_, B> {
     }
 }
 
+impl<B: HasBytes + Default> Default for Bytes<'_, B> {
+    fn default() -> Self {
+        Self::Owned(B::default())
+    }
+}
+
 /// Wrapper around a byte slice to ensure that implementors of `FromBytes` always visibly "consume" the bytes they read,
 /// rather than just invisibly copying them. Preferable to `std::io::Read` because we know that the byte source is just an
 /// in-memory `&[u8]`, so we know we don't have to deal with any possible I/O errors
@@ -155,6 +161,11 @@ impl<'a> Reader<'a> {
         Ok(buf)
     }
 
+    /// Consume a little-endian u32 length prefix from the buffer, or return an error if the buffer doesn't have enough bytes.
+    pub fn read_length_prefix(&mut self) -> Result<usize, UnexpectedEof> {
+        self.read_exact().map(|b| u32::from_le_bytes(b) as _)
+    }
+
     /// Consume an exact amount of bytes from the buffer, or return an error if the buffer doesn't have enough bytes.
     /// If the number of bytes to read is a constant value, consider using [`read_exact`] to get an array back instead.
     pub fn split_off(&mut self, bytes: usize) -> Result<Self, UnexpectedEof> {
@@ -162,6 +173,12 @@ impl<'a> Reader<'a> {
             .split_off(..bytes)
             .ok_or_else(|| self.expected_more_bytes(bytes))
             .map(Self::new)
+    }
+
+    /// Consume a little-endian u32 length prefix from the buffer, then consume and return that many bytes from the buffer,
+    /// or return an error if the buffer doesn't have enough bytes.
+    pub fn read_length_prefix_and_split_off(&mut self) -> Result<Self, UnexpectedEof> {
+        self.read_length_prefix().and_then(|i| self.split_off(i))
     }
 
     /// Consume the entire buffer.
@@ -176,9 +193,110 @@ impl<'a> From<&'a [u8]> for Reader<'a> {
     }
 }
 
+/// Serialization helper for `AsBytes` implementors.
+///
+/// This type keeps track of the number of written bytes, and upon [`finish`] being called, will return `Err`
+/// if too few or too many bytes were written, compared to the `size` that was specified on construction.
+///
+/// We do it this way, instead of having the `write` methods fail eagerly, to reduce the amount
+/// of (possibly panicking) branches that are generated in the middle of serialization code.
+pub struct Writer {
+    buffer: Builder,
+    written: usize,
+}
+
+#[derive(Error, Debug)]
+#[error(
+    "buffer was allocated with {} bytes but {}",
+    self.0,
+    if self.1 == usize::MAX { "more bytes than that were written" } else { "only {self.1} bytes were written" }
+)]
+pub struct IncorrectBufferSize(usize, usize);
+
+impl Writer {
+    #[inline]
+    pub fn new(size: usize) -> Self {
+        Self {
+            buffer: ByteView::builder(size),
+            written: 0,
+        }
+    }
+
+    #[inline]
+    fn try_write(&mut self, bytes: &[u8]) {
+        let range_end = self.written.saturating_add(bytes.len());
+        if range_end > self.buffer.len() {
+            // Sentinel value to indicate that writes have exceeded our total len.
+            // Once this happens once, we will always enter this branch every time
+            self.written = usize::MAX;
+        } else {
+            // SAFETY: We check that `a.saturating_add(b)` is in-bounds, which implies that `a` and `b` are both also in-bounds
+            unsafe {
+                let dst = self.buffer.as_mut_ptr().offset(self.written as _);
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
+            }
+            self.written = range_end;
+        }
+    }
+
+    // Duplicate of `try_write` with const size for arrays, for better codegen
+    // See: <https://github.com/rust-lang/rust/blob/752b9bf8798c2ffc1d3fe2b804c04454366fc6d6/library/proc_macro/src/bridge/buffer.rs#L50-L53>
+    #[inline]
+    fn try_write_array<const N: usize>(&mut self, bytes: &[u8; N]) {
+        let range_end = self.written.saturating_add(bytes.len());
+        if range_end > self.buffer.len() {
+            // Sentinel value to indicate that writes have exceeded our total len.
+            // Once this happens once, we will always enter this branch every time
+            self.written = usize::MAX;
+        } else {
+            // SAFETY: We check that `a.saturating_add(b)` is in-bounds, which implies that `a` and `b` are both also in-bounds
+            unsafe {
+                let dst = self.buffer.as_mut_ptr().offset(self.written as _);
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
+            }
+            self.written = range_end;
+        }
+    }
+
+    #[inline]
+    pub fn write_one(&mut self, byte: u8) {
+        self.try_write_array(&[byte]);
+    }
+
+    #[inline]
+    pub fn write(&mut self, bytes: impl AsRef<[u8]>) {
+        let bytes = bytes.as_ref();
+        self.try_write(bytes);
+    }
+
+    #[inline]
+    pub fn write_fixed<const N: usize>(&mut self, bytes: &[u8; N]) {
+        self.try_write_array(bytes);
+    }
+
+    #[inline]
+    pub fn write_with_length_prefix(&mut self, bytes: impl AsRef<[u8]>) {
+        let bytes = bytes.as_ref();
+        let length_prefix = bytes.len().to_le_bytes();
+        self.try_write_array(&length_prefix);
+        self.try_write(bytes);
+    }
+
+    #[inline]
+    pub fn finish(self) -> Result<Buffer, IncorrectBufferSize> {
+        if self.written != self.buffer.len() {
+            Err(IncorrectBufferSize(self.written, self.buffer.len()))
+        } else {
+            Ok(self.buffer.freeze().into())
+        }
+    }
+}
+
 /// Does this type have a constant size (in bytes) when serialized, or is it variable?
 /// If `SIZE_HINT` is `Some(_)`, types should always consume exactly that many bytes from the input buffer in their `FromBytes`
 /// impl. If it is `None`, types should instead consume the entire buffer.
+///
+/// This is so that we can elide redundant length prefixes in cases where it's just the Entire Buffer.
 pub trait SizeHint {
     const SIZE_HINT: Option<usize>;
 }
