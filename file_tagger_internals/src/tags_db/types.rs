@@ -8,16 +8,16 @@ use std::{
 
 use byteview::ByteView;
 use estr::Estr;
-use scru64::{Scru64Id, id::RangeError};
+use scru64::Scru64Id;
 use thiserror::Error;
 
 use crate::{
     Buffer,
     serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, LENGTH_PREFIX_BYTES, Prefixable, Reader, SizeHint,
-        SmallVec, SmallVecError, UnexpectedEof, Writer,
+        AsBytes, BoolError, Bytes, BytesInto, BytesIntoError, DerefProxy, FromBytes,
+        LENGTH_PREFIX_BYTES, Prefixable, Reader, SizeHint, SmallVec, SmallVecError, UnexpectedEof,
+        Writer,
     },
-    tags_db::types::TagDataError::Numerical,
 };
 
 /// Identifies a single entry in the database, which can have many associated tags.
@@ -50,7 +50,7 @@ pub enum EntryParseError {
     #[error("unexpected EOF while reading entry ID")]
     UnexpectedEOF(#[from] UnexpectedEof),
     #[error(transparent)]
-    Range(#[from] RangeError<u64>),
+    Range(#[from] scru64::id::RangeError<u64>),
 }
 
 impl FromBytes for Entry {
@@ -73,7 +73,7 @@ impl From<Scru64Id> for Entry {
 }
 
 impl TryFrom<[u8; 8]> for Entry {
-    type Error = RangeError<u64>;
+    type Error = scru64::id::RangeError<u64>;
 
     fn try_from(bytes: [u8; 8]) -> Result<Self, Self::Error> {
         u64::from_be_bytes(bytes).try_into().map(Self)
@@ -176,7 +176,22 @@ impl Display for Tag {
 ///    }
 /// }
 /// ```
+#[derive(Debug, Clone, Copy)]
 pub struct AnyRange<T>(Option<T>, Bound<T>);
+
+#[derive(Debug, Error)]
+#[error("{0} is outside the range {1}")]
+pub struct RangeError<T>(T, AnyRange<T>);
+
+impl<T: PartialOrd + Clone> AnyRange<T> {
+    pub fn validate_range(&self, element: T) -> Result<T, RangeError<T>> {
+        if self.contains(&element) {
+            Ok(element)
+        } else {
+            Err(RangeError(element, self.clone()))
+        }
+    }
+}
 
 impl<T> RangeBounds<T> for AnyRange<T> {
     fn start_bound(&self) -> Bound<&T> {
@@ -190,6 +205,19 @@ impl<T> RangeBounds<T> for AnyRange<T> {
     fn end_bound(&self) -> Bound<&T> {
         let Self(_, end) = self;
         end.as_ref()
+    }
+}
+
+impl<T: Display> Display for AnyRange<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self(Some(start), Bound::Excluded(end)) => write!(f, "{start}..{end}"),
+            Self(Some(start), Bound::Unbounded) => write!(f, "{start}.."),
+            Self(None, Bound::Unbounded) => write!(f, ".."),
+            Self(Some(start), Bound::Included(end)) => write!(f, "{start}..={end}"),
+            Self(None, Bound::Excluded(end)) => write!(f, "..{end}"),
+            Self(None, Bound::Included(end)) => write!(f, "..={end}"),
+        }
     }
 }
 
@@ -332,7 +360,7 @@ impl<T: FromBytes> FromBytes for AnyRange<T> {
 
 /// The kind of data that a tag has
 #[repr(u8)]
-pub enum TagData {
+pub enum TagDataType {
     /// The tag has no associated data
     None,
     /// A UTF-8 string
@@ -340,7 +368,7 @@ pub enum TagData {
     /// An enum, a fixed set of allowed UTF-8 strings.
     Enum(SmallVec<Estr>),
     /// A true/false boolean
-    Boolean,
+    Bool,
     /// Unsigned integer within a given range
     Unsigned(AnyRange<u64>),
     /// Signed integer within a given range
@@ -351,7 +379,7 @@ pub enum TagData {
     Buffer,
 }
 
-impl TagData {
+impl TagDataType {
     pub fn discriminant(&self) -> u8 {
         // SAFETY: This is safe as the type has `#[repr(u8)]`
         // See <https://doc.rust-lang.org/stable/reference/items/enumerations.html#pointer-casting>
@@ -359,12 +387,12 @@ impl TagData {
     }
 }
 
-impl SizeHint for TagData {
+impl SizeHint for TagDataType {
     /// This is only `None` thanks to the `Enum` variant
     const SIZE_HINT: Option<usize> = None;
 }
 
-impl AsBytes for TagData {
+impl AsBytes for TagDataType {
     type Bytes = Buffer;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
@@ -389,21 +417,21 @@ impl AsBytes for TagData {
 }
 
 #[derive(Debug, Error)]
-pub enum TagDataError {
+pub enum TagDataTypeError {
     #[error("unexpected EOF while deserializing tag data type")]
     Eof(#[from] UnexpectedEof),
     #[error(
         "tag data type discriminant can only be 0, 1, 2, 3, 4, 5, 6, or 7, but got {0} instead"
     )]
     InvalidDiscriminant(u8),
-    #[error("error while deserializing tag data enum type")]
+    #[error("error while deserializing tag data enum type variants")]
     Enum(#[from] SmallVecError<Estr>),
-    #[error("error while deserializing tag data numerical type")]
+    #[error("error while deserializing tag data numerical type range")]
     Numerical(#[source] AnyRangeError<u8>),
 }
 
 // Cheeky thing because we know all numerical types have the same deser error type
-impl<T> From<AnyRangeError<T>> for TagDataError
+impl<T> From<AnyRangeError<T>> for TagDataTypeError
 where
     T: FromBytes<Error = UnexpectedEof>,
 {
@@ -419,8 +447,8 @@ where
     }
 }
 
-impl FromBytes for TagData {
-    type Error = TagDataError;
+impl FromBytes for TagDataType {
+    type Error = TagDataTypeError;
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
         // All of the variants with data are deserialized exactly the same way
@@ -438,12 +466,168 @@ impl FromBytes for TagData {
             0 => Ok(Self::None),
             1 => Ok(Self::String),
             2 => deserialize!(bytes, Self::Enum),
-            3 => Ok(Self::Boolean),
+            3 => Ok(Self::Bool),
             4 => deserialize!(bytes, Self::Unsigned),
             5 => deserialize!(bytes, Self::Signed),
             6 => deserialize!(bytes, Self::Float),
             7 => Ok(Self::Buffer),
-            e => Err(TagDataError::InvalidDiscriminant(e)),
+            e => Err(TagDataTypeError::InvalidDiscriminant(e)),
         }
+    }
+}
+
+/// A strongly-typed instance of tag data containing the deserialized value
+pub enum TypedTagData {
+    /// The tag has no associated data
+    None,
+    /// A UTF-8 string
+    String(String),
+    /// An enum, a fixed set of allowed UTF-8 strings.
+    Enum(Estr),
+    /// A true/false boolean
+    Bool(bool),
+    /// Unsigned integer within a given range
+    Unsigned(u64),
+    /// Signed integer within a given range
+    Signed(i64),
+    /// Floating point number within a given range
+    Float(f64),
+    /// An opaque binary blob
+    Buffer(Buffer),
+}
+
+/// hack
+impl SizeHint for TypedTagData {
+    const SIZE_HINT: Option<usize> = unreachable!();
+}
+
+/// hack
+impl FromBytes for TypedTagData {
+    type Error = TagDataError;
+
+    fn try_from(_: &mut Reader) -> Result<Self, Self::Error> {
+        unreachable!()
+    }
+}
+
+/// An untyped instance of tag data containing the raw serialized value
+pub struct TagData(Buffer);
+
+/// Because `SmallVec` (and `Vec`) don't impl `Display`...
+///
+/// Note: This wraps the displayed elements in '' so it's only appropriate for stringy types
+macro_rules! fmt_vec {
+    ($vec:expr) => {
+        std::fmt::from_fn(move |f| {
+            use std::fmt::Write;
+            f.write_char('[')?;
+            f.write_char(' ')?;
+            let mut iter = $vec.iter();
+            let mut next = iter.next();
+            // `Iterator::intersperse` is nightly so we do it manually
+            while let Some(s) = next {
+                f.write_char('\'')?;
+                std::fmt::Display::fmt(s, f)?;
+                f.write_char('\'')?;
+                next = iter.next();
+                if next.is_some() {
+                    f.write_char(',')?;
+                    f.write_char(' ')?;
+                }
+            }
+            f.write_char(' ')?;
+            f.write_char(']')
+        })
+    };
+}
+
+#[derive(Debug, Error)]
+pub enum TagDataError {
+    #[error("error while deserializing string data")]
+    String(#[source] Utf8Error),
+    #[error("error while deserializing enum data")]
+    EnumDeser(#[source] Utf8Error),
+    #[error("enum data '{0}' is outside the allowed set of values: {v}", v = fmt_vec!(.1))]
+    EnumVariant(Estr, Vec<Estr>),
+    #[error("error while deserializing bool data")]
+    Bool(#[from] BoolError),
+    #[error("error while deserializing numerical data")]
+    NumericalDeser(#[from] UnexpectedEof),
+    // These can't be folded into a single generic "numerical range" variant
+    // because the different number types need to be formatted differently
+    #[error("unsigned integer data is outside the permitted range")]
+    UnsignedRange(#[from] RangeError<u64>),
+    #[error("signed integer data is outside the permitted range")]
+    SignedRange(#[from] RangeError<i64>),
+    #[error("floating point data is outside the permitted range")]
+    FloatRange(#[from] RangeError<f64>),
+}
+
+impl TagData {
+    /// Deserialize the raw tag data to a strongly-typed value, according to the provided type metadata
+    pub fn deserialize(
+        self,
+        metadata: &TagDataType,
+    ) -> Result<TypedTagData, BytesIntoError<TypedTagData>> {
+        macro_rules! deserialize {
+            ($buf:ident, $variant:ident, $deser_err:ident $(, $validate:expr)?) => {
+                $buf.bytes_into()
+                    .map_err(|e| match e {
+                        BytesIntoError::ExpectedEof(rem, total) => BytesIntoError::ExpectedEof(rem, total),
+                        BytesIntoError::Deser(e) => BytesIntoError::Deser(TagDataError::$deser_err(e)),
+                    })
+                    $( .and_then(|data| $validate(data).map_err(|e| BytesIntoError::Deser(e))) )?
+                    .map(TypedTagData::$variant)
+            };
+        }
+
+        let Self(buf) = self;
+        match metadata {
+            TagDataType::None => Ok(TypedTagData::None),
+            TagDataType::String => deserialize!(buf, String, String),
+            TagDataType::Enum(variants) => {
+                deserialize!(buf, Enum, EnumDeser, |s| variants
+                    .contains(&s)
+                    .then_some(s)
+                    .ok_or_else(|| TagDataError::EnumVariant(s, variants.to_vec())))
+            }
+            TagDataType::Bool => deserialize!(buf, Bool, Bool),
+            TagDataType::Unsigned(range) => {
+                deserialize!(buf, Unsigned, NumericalDeser, |i| range
+                    .validate_range(i)
+                    .map_err(TagDataError::UnsignedRange))
+            }
+            TagDataType::Signed(range) => {
+                deserialize!(buf, Signed, NumericalDeser, |i| range
+                    .validate_range(i)
+                    .map_err(TagDataError::SignedRange))
+            }
+            TagDataType::Float(range) => {
+                deserialize!(buf, Float, NumericalDeser, |i| range
+                    .validate_range(i)
+                    .map_err(TagDataError::FloatRange))
+            }
+            TagDataType::Buffer => Ok(TypedTagData::Buffer(buf)),
+        }
+    }
+}
+
+impl SizeHint for TagData {
+    const SIZE_HINT: Option<usize> = None;
+}
+
+impl AsBytes for TagData {
+    type Bytes = Buffer;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Borrowed(self.0.as_ref())
+    }
+}
+
+impl FromBytes for TagData {
+    type Error = Infallible;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        Ok(Self(bytes.take_all().into()))
     }
 }
