@@ -41,6 +41,39 @@ macro_rules! impl_serde_numerical {
 
 impl_serde_numerical!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64);
 
+/* bool */
+
+impl SizeHint for bool {
+    const SIZE_HINT: Option<usize> = Some(1);
+}
+
+impl AsBytes for bool {
+    type Bytes = DerefProxy<[u8; 1]>;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Owned([*self as _].into())
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum BoolError {
+    #[error("unexpected EOF while deserializing bool")]
+    Eof(#[from] UnexpectedEof),
+    #[error("bool value must be 0 or 1 but was {0} instead")]
+    Deser(u8),
+}
+
+impl FromBytes for bool {
+    type Error = BoolError;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        bytes.read_one().map_err(Into::into).and_then(|b| match b {
+            2.. => Err(BoolError::Deser(b)),
+            _ => Ok(b != 0),
+        })
+    }
+}
+
 /* Buffer */
 
 impl SizeHint for Buffer {
@@ -60,6 +93,36 @@ impl FromBytes for Buffer {
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
         Ok(bytes.take_all().into())
+    }
+}
+
+/* String */
+
+impl SizeHint for String {
+    const SIZE_HINT: Option<usize> = None;
+}
+
+impl AsBytes for String {
+    type Bytes = Self;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Borrowed(self.as_str())
+    }
+}
+
+impl FromBytes for String {
+    type Error = Utf8Error;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        str::from_utf8(bytes.take_all()).map(Into::into)
+    }
+}
+
+impl<T: AsRef<str> + ?Sized> Prefixable<T> for String {
+    type Prefix = Self;
+
+    fn prefix(prefix: &T) -> Self::Prefix {
+        prefix.as_ref().to_owned()
     }
 }
 

@@ -5,7 +5,7 @@ use thiserror::Error;
 
 mod impls;
 
-pub use impls::{SmallVecError, TupleError};
+pub use impls::{BoolError, SmallVecError, TupleError};
 
 use crate::Buffer;
 
