@@ -1,14 +1,12 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use arrayvec::ArrayVec;
-use estr::Estr;
 use miette::IntoDiagnostic;
-use thiserror::Error;
 
 use crate::{
-    APP_DATA_FOLDER_NAME,
-    database::{Database, DbApi, Table},
-    serde::{AsBytes, Bytes, FromBytes, Reader, SizeHint, SmallVec},
+    APP_DATA_FOLDER_NAME, Buffer,
+    database::{Database, DeserError, Table},
+    serde::{AsBytes, Bytes, FromBytes, SizeHint, SmallVec},
 };
 
 #[derive(Clone)]
@@ -40,7 +38,8 @@ const MAX_RECENTS: usize = 10;
 #[derive(Clone)]
 pub struct AppData {
     database: Database,
-    table: Table<DataKey, SmallVec<Estr>>,
+    /// The only sensible value type is `Buffer` as the actual value type varies per-key
+    table: Table<ConstKey, Buffer>,
     /// The `ArrayVec` is boxed as with a capacity of 10 it is 488 bytes, which would more than double the size of `ActiveView`
     recent_folders: Box<ArrayVec<RecentFolder, MAX_RECENTS>>,
 }
@@ -57,7 +56,7 @@ impl AppData {
     fn open_tables(mut database: Database) -> miette::Result<Self> {
         let table = database.open_table("AppData").into_diagnostic()?;
         let recent_folders = database
-            .get(&table, &DataKey::RecentFolders)
+            .get::<RecentFolders>(&table)
             .map(|result| {
                 Box::new(
                     result
@@ -115,11 +114,11 @@ impl AppData {
         let buffer = self
             .recent_folders
             .iter()
-            .filter_map(|folder| folder.path.to_str().map(Estr::from))
+            .filter_map(|folder| folder.path.clone().into_string().ok())
             .collect();
 
         self.database
-            .insert(&mut self.table, &DataKey::RecentFolders, &buffer)
+            .insert::<RecentFolders>(&mut self.table, &buffer)
             .map(|_| folder)
     }
 
@@ -128,37 +127,66 @@ impl AppData {
     }
 }
 
-enum DataKey {
-    RecentFolders,
-}
+/// A key that has to be known at compile time
+struct ConstKey(&'static [u8]);
 
-#[derive(Error, Debug)]
-enum DataKeyParseError {
-    #[error("Invalid key")]
-    InvalidKey,
-}
-
-impl SizeHint for DataKey {
+impl SizeHint for ConstKey {
     const SIZE_HINT: Option<usize> = None;
 }
 
-impl AsBytes for DataKey {
-    type Bytes = &'static str;
+impl AsBytes for ConstKey {
+    type Bytes = &'static [u8];
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        match self {
-            DataKey::RecentFolders => Bytes::Owned("RecentFolders"),
-        }
+        Bytes::Owned(self.0)
     }
 }
 
-impl FromBytes for DataKey {
-    type Error = DataKeyParseError;
+/// A static key that is associated with a specific value type
+trait ConstTypedKey {
+    const KEY: ConstKey;
+    type Value;
+}
 
-    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        match bytes.take_all() {
-            b"RecentFolders" => Ok(Self::RecentFolders),
-            _ => Err(DataKeyParseError::InvalidKey),
+macro_rules! impl_const_typed_key {
+    ($ty:ty, $value:ty) => {
+        impl ConstTypedKey for $ty {
+            const KEY: ConstKey = ConstKey(stringify!($ty).as_bytes());
+            type Value = $value;
         }
+    };
+}
+
+/// Helper methods for working with the above type and trait
+trait DatabaseExt: crate::database::DbApi {
+    fn get<Key: ConstTypedKey<Value: FromBytes>>(
+        &self,
+        table: &Table<ConstKey, Buffer>,
+    ) -> Result<Option<Key::Value>, DeserError<Key::Value>> {
+        // SAFETY: `Table` is `#[repr(transparent)]` and we are only transmuting the phantomdata/type parameters
+        let table = unsafe {
+            std::mem::transmute::<&Table<ConstKey, Buffer>, &Table<ConstKey, Key::Value>>(table)
+        };
+        crate::database::DbApi::get(self, table, &Key::KEY)
+    }
+
+    fn insert<Key: ConstTypedKey<Value: AsBytes>>(
+        &mut self,
+        table: &mut Table<ConstKey, Buffer>,
+        value: &Key::Value,
+    ) -> crate::database::Result<()> {
+        // SAFETY: `Table` is `#[repr(transparent)]` and we are only transmuting the phantomdata/type parameters
+        let table = unsafe {
+            std::mem::transmute::<&mut Table<ConstKey, Buffer>, &mut Table<ConstKey, Key::Value>>(
+                table,
+            )
+        };
+        crate::database::DbApi::insert(self, table, &Key::KEY, value)
     }
 }
+
+impl<T: crate::database::DbApi> DatabaseExt for T {}
+
+struct RecentFolders;
+
+impl_const_typed_key!(RecentFolders, SmallVec<String>);
