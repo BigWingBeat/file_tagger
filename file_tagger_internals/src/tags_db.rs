@@ -1,15 +1,13 @@
 use std::{
-    cmp::Ordering,
-    fmt::{Debug, Display, Formatter},
     path::{Path, PathBuf},
-    str::Utf8Error,
     sync::{Arc, Mutex},
 };
 
-use estr::Estr;
-use miette::IntoDiagnostic;
-use scru64::{Scru64Generator, Scru64Id, generator::NodeSpec, id::RangeError};
-use thiserror::Error;
+use miette::{IntoDiagnostic, miette};
+use scru64::{Scru64Generator, generator::NodeSpec};
+
+mod tags;
+mod types;
 
 use crate::{
     DB_FOLDER_NAME, Transaction,
@@ -17,10 +15,13 @@ use crate::{
     database::{
         self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
     },
-    serde::{
-        AsBytes, Bytes, DerefProxy, FromBytes, Prefixable, Reader, Serde, SizeHint, SmallSortedSet,
-        UnexpectedEof,
-    },
+    serde::{AsBytes, FromBytes, Serde, SmallSortedSet},
+    tags_db::tags::{META_DATA, META_TAG},
+};
+
+pub use types::{
+    AnyRange, AnyRangeError, Entry, EntryParseError, RangeError, Tag, TagData, TagDataError,
+    TagDataType, TagDataTypeError, TypedTagData,
 };
 
 #[derive(Clone)]
@@ -104,7 +105,7 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     ///
     /// Note: data in key is split by word for strings ("inverted index"). Tags with binary data, and tags without any data, are
     /// not present in this table at all, as there is no way to search for specific data values for such tags
-    entries_by_data: Table<(Tag, Buffer), SmallSortedSet<Entry>>,
+    entries_by_data: Table<(Tag, TagData), SmallSortedSet<Entry>>,
     /// Lookup which tags are applied to entries
     ///
     /// Key: entry ID
@@ -116,7 +117,7 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     /// Value: tag data
     ///
     /// Note: Tags without any associated data are not present, tag instances with empty data (e.g. empty strings) are present
-    tag_values: Table<(Entry, Tag), Buffer>,
+    tag_values: Table<(Entry, Tag), TagData>,
     /// Convert tag names to their associated tag entries (that is, the "meta" entry that describes that tag)
     ///
     /// Key: tag name
@@ -138,7 +139,8 @@ impl<T: DbApi> TagsDatabase<T> {
         let generator = Arc::new(Mutex::new(
             init_or_resume_generator(&database, &tags_by_entry).into_diagnostic()?,
         ));
-        Ok(Self {
+
+        let mut db = Self {
             database,
             entries_by_tag,
             entries_by_data,
@@ -146,7 +148,38 @@ impl<T: DbApi> TagsDatabase<T> {
             tag_values,
             tag_entries,
             generator,
-        })
+        };
+        db.initialize_well_known_tags()?;
+        Ok(db)
+    }
+
+    fn initialize_well_known_tags(&mut self) -> miette::Result<()> {
+        Ok(())
+    }
+
+    fn get_tag_value(&self, entry: Entry, tag: Tag) -> miette::Result<Option<TypedTagData>> {
+        let tag_entry = self
+            .database
+            .get(&self.tag_entries, &tag)
+            .into_diagnostic()
+            .and_then(|entry| entry.ok_or_else(|| miette!("missing tag entry")))?;
+
+        let metadata = self
+            .database
+            .get(&self.tag_values, &(tag_entry, *META_DATA))
+            .into_diagnostic()
+            .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
+
+        let metadata = metadata.deser_meta_data().into_diagnostic()?;
+
+        self.database
+            .get(&self.tag_values, &(entry, tag))
+            .into_diagnostic()
+            .and_then(|value| {
+                value
+                    .map(|value| value.deserialize(&metadata).into_diagnostic())
+                    .transpose()
+            })
     }
 
     /// If this tag already exists, this is effectively a no-op.
@@ -155,39 +188,62 @@ impl<T: DbApi> TagsDatabase<T> {
         // entries_by_data: Not updated as new tags aren't applied to anything
         // tags_by_entry: Not updated as new tags aren't applied to anything
         // tag_values: Not updated as new tags aren't applied to anything
-        // Insert into tag_entries
+        // Insert into tag_entries (unless it already exists)
 
         self.database
             .ensure_exists(&mut self.entries_by_tag, &tag)
             .into_diagnostic()?;
 
-        let entry = self.generate_entry();
+        // TODO: update_fetch
+        let entry = self
+            .database
+            .fetch_update(&mut self.tag_entries, &tag, |entry| {
+                Some(entry.unwrap_or_else(|| self.generator.generate_entry()))
+            })
+            .into_diagnostic()?
+            // The above closure always returns `Some`
+            .unwrap();
 
-        self.database
-            .insert(&mut self.tag_entries, &tag, &entry)
-            .into_diagnostic()?;
+        self.insert_tag_value_on_entry(*META_TAG, entry, tag.as_bytes().as_ref().into())?;
 
         Ok(())
-    }
-
-    /// If the entry does not exist, this is effectively a no-op.
-    ///
-    /// Potentially very destructive! Use with care.
-    fn delete_entry(&mut self, entry: Entry) -> miette::Result<()> {
-        todo!()
     }
 
     /// If the tag does not exist, this is effectively a no-op.
     ///
     /// Potentially very destructive! Use with care.
     fn delete_tag(&mut self, tag: Tag) -> miette::Result<()> {
+        self.database
+            .get(&self.tag_entries, &tag)
+            .into_diagnostic()
+            .and_then(|entry| entry.map_or(Ok(()), |entry| self.delete_entry(entry)))
+    }
+
+    /// If the entry does not exist, this is effectively a no-op.
+    ///
+    /// Potentially very destructive! Use with care.
+    fn delete_entry(&mut self, entry: Entry) -> miette::Result<()> {
+        // Take from tags_by_entry: taken value is used to update entries_by_tag
+        // Update entries_by_tag: Use value taken from tags_by_entry to find all keys to update, then remove entry from value sets
+        // entries_by_data: Use value taken from tags_by_entry to find all keys to update, then remove entry from value sets
+        // tag_values: Prefix search to find all keys to remove
+        // Remove from tag_entries: Use retrieved tag name to find key to remove
+
+        // Metatag "tag_name": lookup tag_values: (entry, "tag_name") -> deser to tag name for tag entries, then delete_tag_name
+
+        todo!()
+    }
+
+    /// Should never be called directly. This is a helper method for `delete_entry`.
+    /// If the tag does not exist, this is effectively a no-op.
+    ///
+    /// Potentially very destructive! Use with care.
+    fn delete_tag_name(&mut self, tag: Tag) -> miette::Result<()> {
         // Take from entries_by_tag: taken value is used to update tags_by_entry
         // Remove from entries_by_data: Prefix search to find all keys to remove
         // Update tags_by_entry: Use value taken from entries_by_tag to find all keys to update, then remove tag from value sets
         // Remove from tag_values: Use value taken from entries_by_tag to find all keys to remove
-        // Take from tag_entries: taken value is used to delete the tag entry
-
-        // TODO: also delete the tag entry
+        // Remove from tag_entries
 
         let entries = self
             .database
@@ -218,16 +274,9 @@ impl<T: DbApi> TagsDatabase<T> {
                 .into_diagnostic()?;
         }
 
-        let entry = self
-            .database
-            .take(&mut self.tag_entries, &tag)
-            .into_diagnostic()?;
-
-        if let Some(entry) = entry {
-            self.delete_entry(entry)
-        } else {
-            Ok(())
-        }
+        self.database
+            .remove(&mut self.tag_entries, &tag)
+            .into_diagnostic()
     }
 
     /// If this tag is already applied to this entry, this is effectively a no-op. For tags with values, it updates the value.
@@ -235,12 +284,39 @@ impl<T: DbApi> TagsDatabase<T> {
     /// You can think of this as creating a new instance of the tag.
     fn insert_tag_on_entry(&mut self, tag: Tag, entry: Entry) -> miette::Result<()> {
         // Update entries_by_tag: insert entry into value set
+        // entries_by_data: Not updated as this tag has no data
+        // Update tags_by_entry: insert tag into value set
+        // tag_values: Not updated as this tag has no data
+        // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
+
+        // TODO: verify this tag really has no data
+
+        self.database
+            .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
+            .into_diagnostic()?;
+
+        self.database
+            .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
+            .into_diagnostic()?;
+
+        Ok(())
+    }
+
+    fn insert_tag_value_on_entry(
+        &mut self,
+        tag: Tag,
+        entry: Entry,
+        value: Buffer,
+    ) -> miette::Result<()> {
+        // Update entries_by_tag: insert entry into value set
         // Update entries_by_data: insert entry into value set
         // Update tags_by_entry: insert tag into value set
         // Insert into tag_values
         // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
 
-        let value = Buffer::default();
+        // TODO: verify data is correct for this tag (tag has data and data is of correct type)
+
+        let value = value.into();
 
         self.database
             .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
@@ -286,10 +362,20 @@ impl<T: DbApi> TagsDatabase<T> {
 impl<T> TagsDatabase<T> {
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     fn generate_entry(&mut self) -> Entry {
+        self.generator.generate_entry()
+    }
+}
+
+pub trait EntryGeneratorExt {
+    fn generate_entry(&mut self) -> Entry;
+}
+
+impl EntryGeneratorExt for Arc<Mutex<Scru64Generator>> {
+    fn generate_entry(&mut self) -> Entry {
         // See: `scru64::new_sync()`
         const DELAY: std::time::Duration = std::time::Duration::from_millis(64);
         loop {
-            if let Some(id) = self.generator.lock().unwrap().generate() {
+            if let Some(id) = self.lock().unwrap().generate() {
                 return id.into();
             } else {
                 eprintln!("sleeping to generate entry ID");

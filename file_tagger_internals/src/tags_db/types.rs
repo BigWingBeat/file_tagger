@@ -610,6 +610,11 @@ impl TagData {
             TagDataType::Buffer => Ok(TypedTagData::Buffer(buf)),
         }
     }
+
+    /// Should only be used for values gotten from the `META_DATA` special tag
+    pub fn deser_meta_data(self) -> Result<TagDataType, BytesIntoError<TagDataType>> {
+        self.0.bytes_into()
+    }
 }
 
 impl SizeHint for TagData {
@@ -629,5 +634,11 @@ impl FromBytes for TagData {
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
         Ok(Self(bytes.take_all().into()))
+    }
+}
+
+impl From<Buffer> for TagData {
+    fn from(data: Buffer) -> Self {
+        Self(data)
     }
 }
