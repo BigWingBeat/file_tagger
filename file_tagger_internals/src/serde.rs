@@ -95,6 +95,19 @@ where
     }
 }
 
+impl<B> Bytes<'_, B>
+where
+    B: HasBytes,
+    for<'a> &'a B::Target: Into<B>,
+{
+    pub fn into_owned(self) -> B {
+        match self {
+            Self::Borrowed(b) => b.into(),
+            Self::Owned(b) => b,
+        }
+    }
+}
+
 impl<B: HasBytes> AsRef<[u8]> for Bytes<'_, B> {
     fn as_ref(&self) -> &[u8] {
         match self {
