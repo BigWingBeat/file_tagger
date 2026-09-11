@@ -26,7 +26,7 @@ pub use types::{
 
 #[derive(Clone)]
 pub struct DatabaseState {
-    database: TagsDatabase,
+    db: TagsDatabase,
     folder: RecentFolder,
 }
 
@@ -36,8 +36,8 @@ impl DatabaseState {
     }
 
     pub fn create_temporary() -> miette::Result<Self> {
-        TagsDatabase::open_temporary().map(|database| Self {
-            database,
+        TagsDatabase::open_temporary().map(|db| Self {
+            db,
             folder: PathBuf::default().into(),
         })
     }
@@ -54,42 +54,42 @@ impl DatabaseState {
             })
             .into_diagnostic()
             .and_then(|_| TagsDatabase::open(db_folder.path))
-            .map(|database| Self { database, folder })
+            .map(|db| Self { db, folder })
     }
 
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     pub fn generate_entry(&mut self) -> Entry {
-        self.database.generate_entry()
+        self.db.generate_entry()
     }
 
     pub fn initialize_transaction(self) -> Result<ActiveTransactionDatabaseState, database::Error> {
-        self.database
+        self.db
             .initialize_transaction()
-            .map(|database| ActiveTransactionDatabaseState {
-                database,
+            .map(|db| ActiveTransactionDatabaseState {
+                db,
                 folder: self.folder,
             })
     }
 
     pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
-        self.database.tag_entry_by_name(tag)
+        self.db.tag_entry_by_name(tag)
     }
 
     pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
-        self.database.tag_exists(tag)
+        self.db.tag_exists(tag)
     }
 
     pub fn search_tags_names_by_prefix(
         &self,
         prefix: &str,
     ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
-        self.database.search_tags_names_by_prefix(prefix)
+        self.db.search_tags_names_by_prefix(prefix)
     }
 }
 
 #[derive(Clone)]
 pub struct TagsDatabase<Transaction = NoTransaction> {
-    database: Database<Transaction>,
+    db: Database<Transaction>,
     /// Lookup which entries tags are applied to
     ///
     /// Key: tag name
@@ -130,18 +130,18 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
 
 /// Transaction-agnostic methods
 impl<T: DbApi> TagsDatabase<T> {
-    fn open_tables(mut database: Database<T>) -> miette::Result<Self> {
-        let entries_by_tag = database.open_table("EntriesByTag").into_diagnostic()?;
-        let entries_by_data = database.open_table("EntriesByData").into_diagnostic()?;
-        let tags_by_entry = database.open_table("TagsByEntry").into_diagnostic()?;
-        let tag_data = database.open_table("TagData").into_diagnostic()?;
-        let tag_entries = database.open_table("TagEntries").into_diagnostic()?;
+    fn open_tables(mut db: Database<T>) -> miette::Result<Self> {
+        let entries_by_tag = db.open_table("EntriesByTag").into_diagnostic()?;
+        let entries_by_data = db.open_table("EntriesByData").into_diagnostic()?;
+        let tags_by_entry = db.open_table("TagsByEntry").into_diagnostic()?;
+        let tag_data = db.open_table("TagData").into_diagnostic()?;
+        let tag_entries = db.open_table("TagEntries").into_diagnostic()?;
         let generator = Arc::new(Mutex::new(
-            init_or_resume_generator(&database, &tags_by_entry).into_diagnostic()?,
+            init_or_resume_generator(&db, &tags_by_entry).into_diagnostic()?,
         ));
 
         let mut db = Self {
-            database,
+            db,
             entries_by_tag,
             entries_by_data,
             tags_by_entry,
@@ -159,20 +159,20 @@ impl<T: DbApi> TagsDatabase<T> {
 
     fn get_tag_data(&self, entry: Entry, tag: Tag) -> miette::Result<Option<TypedTagData>> {
         let tag_entry = self
-            .database
+            .db
             .get(&self.tag_entries, &tag)
             .into_diagnostic()
             .and_then(|entry| entry.ok_or_else(|| miette!("missing tag entry")))?;
 
         let metadata = self
-            .database
+            .db
             .get(&self.tag_data, &(tag_entry, *META_DATA))
             .into_diagnostic()
             .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
 
         let metadata = metadata.deser_meta_data().into_diagnostic()?;
 
-        self.database
+        self.db
             .get(&self.tag_data, &(entry, tag))
             .into_diagnostic()
             .and_then(|data| {
@@ -189,13 +189,13 @@ impl<T: DbApi> TagsDatabase<T> {
         // tag_data: Not updated as new tags aren't applied to anything
         // Insert into tag_entries (unless it already exists)
 
-        self.database
+        self.db
             .ensure_exists(&mut self.entries_by_tag, &tag)
             .into_diagnostic()?;
 
         // TODO: update_fetch
         let entry = self
-            .database
+            .db
             .fetch_update(&mut self.tag_entries, &tag, |entry| {
                 Some(entry.unwrap_or_else(|| self.generator.generate_entry()))
             })
@@ -212,7 +212,7 @@ impl<T: DbApi> TagsDatabase<T> {
     ///
     /// Potentially very destructive! Use with care.
     fn delete_tag(&mut self, tag: Tag) -> miette::Result<()> {
-        self.database
+        self.db
             .get(&self.tag_entries, &tag)
             .into_diagnostic()
             .and_then(|entry| entry.map_or(Ok(()), |entry| self.delete_entry(entry)))
@@ -245,20 +245,20 @@ impl<T: DbApi> TagsDatabase<T> {
         // Remove from tag_entries
 
         let entries = self
-            .database
+            .db
             .take(&mut self.entries_by_tag, &tag)
             .into_diagnostic()?
             .unwrap_or_default();
 
-        for result in self.database.prefix(&self.entries_by_data, &tag) {
+        for result in self.db.prefix(&self.entries_by_data, &tag) {
             let (key, _) = result.into_diagnostic()?;
-            self.database
+            self.db
                 .remove(&mut self.entries_by_data, &key)
                 .into_diagnostic()?;
         }
 
         for &entry in &entries {
-            self.database
+            self.db
                 .fetch_update(&mut self.tags_by_entry, &entry, |mut values| {
                     if let Some(values) = &mut values {
                         values.remove(&tag);
@@ -268,12 +268,10 @@ impl<T: DbApi> TagsDatabase<T> {
                 .into_diagnostic()?;
 
             let key = (entry, tag);
-            self.database
-                .remove(&mut self.tag_data, &key)
-                .into_diagnostic()?;
+            self.db.remove(&mut self.tag_data, &key).into_diagnostic()?;
         }
 
-        self.database
+        self.db
             .remove(&mut self.tag_entries, &tag)
             .into_diagnostic()
     }
@@ -290,11 +288,11 @@ impl<T: DbApi> TagsDatabase<T> {
 
         // TODO: verify this tag really has no data
 
-        self.database
+        self.db
             .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
             .into_diagnostic()?;
 
-        self.database
+        self.db
             .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
             .into_diagnostic()?;
 
@@ -317,32 +315,32 @@ impl<T: DbApi> TagsDatabase<T> {
 
         let data = data.into();
 
-        self.database
+        self.db
             .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
             .into_diagnostic()?;
 
         let key = (tag, data);
-        self.database
+        self.db
             .fetch_update_single(&mut self.entries_by_data, &key, &entry)
             .into_diagnostic()?;
 
         let (tag, data) = key;
-        self.database
+        self.db
             .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
             .into_diagnostic()?;
 
         let key = (entry, tag);
-        self.database
+        self.db
             .insert(&mut self.tag_data, &key, &data)
             .into_diagnostic()
     }
 
     fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
-        self.database.get(&self.tag_entries, tag)
+        self.db.get(&self.tag_entries, tag)
     }
 
     fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
-        self.database
+        self.db
             .get(&self.tag_entries, tag)
             .map(|entry| entry.is_some())
     }
@@ -351,7 +349,7 @@ impl<T: DbApi> TagsDatabase<T> {
         &self,
         prefix: &str,
     ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
-        self.database
+        self.db
             .prefix(&self.tag_entries, prefix)
             .map(|kv| kv.map(|(k, _)| k))
     }
@@ -399,27 +397,25 @@ impl TagsDatabase {
     }
 
     fn initialize_transaction(self) -> Result<TagsDatabase<Transaction>, database::Error> {
-        self.database
-            .initialize_transaction()
-            .map(|database| TagsDatabase {
-                database,
-                entries_by_tag: self.entries_by_tag,
-                entries_by_data: self.entries_by_data,
-                tags_by_entry: self.tags_by_entry,
-                tag_data: self.tag_data,
-                tag_entries: self.tag_entries,
-                generator: self.generator,
-            })
+        self.db.initialize_transaction().map(|db| TagsDatabase {
+            db,
+            entries_by_tag: self.entries_by_tag,
+            entries_by_data: self.entries_by_data,
+            tags_by_entry: self.tags_by_entry,
+            tag_data: self.tag_data,
+            tag_entries: self.tag_entries,
+            generator: self.generator,
+        })
     }
 }
 
 /// Yes transaction methods
 impl TagsDatabase<Transaction> {
     fn commit(self) -> (TagsDatabase, Result<Result<(), Conflict>, database::Error>) {
-        let (database, result) = self.database.commit();
+        let (db, result) = self.db.commit();
         (
             TagsDatabase {
-                database,
+                db,
                 entries_by_tag: self.entries_by_tag,
                 entries_by_data: self.entries_by_data,
                 tags_by_entry: self.tags_by_entry,
@@ -433,7 +429,7 @@ impl TagsDatabase<Transaction> {
 
     fn rollback(self) -> TagsDatabase {
         TagsDatabase {
-            database: self.database.rollback(),
+            db: self.db.rollback(),
             entries_by_tag: self.entries_by_tag,
             entries_by_data: self.entries_by_data,
             tags_by_entry: self.tags_by_entry,
@@ -445,32 +441,32 @@ impl TagsDatabase<Transaction> {
 }
 
 pub struct ActiveTransactionDatabaseState {
-    database: TagsDatabase<Transaction>,
+    db: TagsDatabase<Transaction>,
     folder: RecentFolder,
 }
 
 impl ActiveTransactionDatabaseState {
     /// Does not mutate the database. If you want to persist the returned entry, you must write it to the database yourself.
     pub fn generate_entry(&mut self) -> Entry {
-        self.database.generate_entry()
+        self.db.generate_entry()
     }
 
     pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
-        self.database.tag_exists(tag)
+        self.db.tag_exists(tag)
     }
 
     pub fn search_tags_names_by_prefix(
         &self,
         prefix: &str,
     ) -> impl Iterator<Item = Result<Tag, DeserKvError<Tag, Entry>>> {
-        self.database.search_tags_names_by_prefix(prefix)
+        self.db.search_tags_names_by_prefix(prefix)
     }
 
     pub fn commit(self) -> (DatabaseState, Result<Result<(), Conflict>, database::Error>) {
-        let (database, result) = self.database.commit();
+        let (db, result) = self.db.commit();
         (
             DatabaseState {
-                database,
+                db,
                 folder: self.folder,
             },
             result,
@@ -479,7 +475,7 @@ impl ActiveTransactionDatabaseState {
 
     pub fn rollback(self) -> DatabaseState {
         DatabaseState {
-            database: self.database.rollback(),
+            db: self.db.rollback(),
             folder: self.folder,
         }
     }
