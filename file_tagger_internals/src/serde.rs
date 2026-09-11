@@ -318,35 +318,11 @@ pub trait SizeHint {
     const SIZE_HINT: Option<usize>;
 }
 
-impl<T: SizeHint> SizeHint for &T {
-    const SIZE_HINT: Option<usize> = T::SIZE_HINT;
-}
-
-impl<T: SizeHint> SizeHint for &mut T {
-    const SIZE_HINT: Option<usize> = T::SIZE_HINT;
-}
-
 /// A bit like `AsRef<[u8]>`, but allows returning owned data too, which enables both directly returning some bytes without
 /// copying, as well as serializing data into arbitrary bytes and returning that
 pub trait AsBytes: SizeHint {
     type Bytes: HasBytes;
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes>;
-}
-
-impl<T: AsBytes> AsBytes for &T {
-    type Bytes = T::Bytes;
-
-    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        T::as_bytes(self)
-    }
-}
-
-impl<T: AsBytes> AsBytes for &mut T {
-    type Bytes = T::Bytes;
-
-    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        T::as_bytes(self)
-    }
 }
 
 /// A bit like `TryFrom<&[u8]>`, but controlled by us to workaround the orphan rule (we need to impl deser logic for foreign types)
