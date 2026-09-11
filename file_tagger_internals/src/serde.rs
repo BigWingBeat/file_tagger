@@ -334,7 +334,7 @@ pub trait FromBytes: SizeHint + Sized {
 /// Kind of an extension trait to mirror std `from`/`into` ergonomics (not `TryInto` because orphan rule)
 pub trait BytesInto<T> {
     type Error;
-    fn bytes_into(self) -> Result<T, Self::Error>;
+    fn bytes_into(&self) -> Result<T, Self::Error>;
 }
 
 #[derive(Error)]
@@ -363,10 +363,10 @@ where
     }
 }
 
-impl<T: FromBytes> BytesInto<T> for &Buffer {
+impl<B: AsRef<[u8]>, T: FromBytes> BytesInto<T> for B {
     type Error = BytesIntoError<T>;
 
-    fn bytes_into(self) -> Result<T, Self::Error> {
+    fn bytes_into(&self) -> Result<T, Self::Error> {
         let mut bytes = self.as_ref().into();
         T::try_from(&mut bytes)
             .map_err(BytesIntoError::Deser)
