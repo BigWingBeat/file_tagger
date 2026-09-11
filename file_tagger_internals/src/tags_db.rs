@@ -111,13 +111,13 @@ pub struct TagsDatabase<Transaction = NoTransaction> {
     /// Key: entry ID
     /// Value: list of tag names (no duplicates)
     tags_by_entry: Table<Entry, SmallSortedSet<Tag>>,
-    /// Lookup values of specific tag instances on specific entries
+    /// Lookup data of specific tag instances on specific entries
     ///
     /// Key: composite (entry ID + tag name)
     /// Value: tag data
     ///
     /// Note: Tags without any associated data are not present, tag instances with empty data (e.g. empty strings) are present
-    tag_values: Table<(Entry, Tag), TagData>,
+    tag_data: Table<(Entry, Tag), TagData>,
     /// Convert tag names to their associated tag entries (that is, the "meta" entry that describes that tag)
     ///
     /// Key: tag name
@@ -134,7 +134,7 @@ impl<T: DbApi> TagsDatabase<T> {
         let entries_by_tag = database.open_table("EntriesByTag").into_diagnostic()?;
         let entries_by_data = database.open_table("EntriesByData").into_diagnostic()?;
         let tags_by_entry = database.open_table("TagsByEntry").into_diagnostic()?;
-        let tag_values = database.open_table("TagValues").into_diagnostic()?;
+        let tag_data = database.open_table("TagData").into_diagnostic()?;
         let tag_entries = database.open_table("TagEntries").into_diagnostic()?;
         let generator = Arc::new(Mutex::new(
             init_or_resume_generator(&database, &tags_by_entry).into_diagnostic()?,
@@ -145,7 +145,7 @@ impl<T: DbApi> TagsDatabase<T> {
             entries_by_tag,
             entries_by_data,
             tags_by_entry,
-            tag_values,
+            tag_data,
             tag_entries,
             generator,
         };
@@ -157,7 +157,7 @@ impl<T: DbApi> TagsDatabase<T> {
         Ok(())
     }
 
-    fn get_tag_value(&self, entry: Entry, tag: Tag) -> miette::Result<Option<TypedTagData>> {
+    fn get_tag_data(&self, entry: Entry, tag: Tag) -> miette::Result<Option<TypedTagData>> {
         let tag_entry = self
             .database
             .get(&self.tag_entries, &tag)
@@ -166,18 +166,17 @@ impl<T: DbApi> TagsDatabase<T> {
 
         let metadata = self
             .database
-            .get(&self.tag_values, &(tag_entry, *META_DATA))
+            .get(&self.tag_data, &(tag_entry, *META_DATA))
             .into_diagnostic()
             .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
 
         let metadata = metadata.deser_meta_data().into_diagnostic()?;
 
         self.database
-            .get(&self.tag_values, &(entry, tag))
+            .get(&self.tag_data, &(entry, tag))
             .into_diagnostic()
-            .and_then(|value| {
-                value
-                    .map(|value| value.deserialize(&metadata).into_diagnostic())
+            .and_then(|data| {
+                data.map(|data| data.deserialize(&metadata).into_diagnostic())
                     .transpose()
             })
     }
@@ -187,7 +186,7 @@ impl<T: DbApi> TagsDatabase<T> {
         // Update entries_by_tag: create empty value set (unless it already exists)
         // entries_by_data: Not updated as new tags aren't applied to anything
         // tags_by_entry: Not updated as new tags aren't applied to anything
-        // tag_values: Not updated as new tags aren't applied to anything
+        // tag_data: Not updated as new tags aren't applied to anything
         // Insert into tag_entries (unless it already exists)
 
         self.database
@@ -204,7 +203,7 @@ impl<T: DbApi> TagsDatabase<T> {
             // The above closure always returns `Some`
             .unwrap();
 
-        self.insert_tag_value_on_entry(*META_TAG, entry, tag.as_bytes().as_ref().into())?;
+        self.insert_tag_data_on_entry(*META_TAG, entry, tag.as_bytes().as_ref().into())?;
 
         Ok(())
     }
@@ -226,10 +225,10 @@ impl<T: DbApi> TagsDatabase<T> {
         // Take from tags_by_entry: taken value is used to update entries_by_tag
         // Update entries_by_tag: Use value taken from tags_by_entry to find all keys to update, then remove entry from value sets
         // entries_by_data: Use value taken from tags_by_entry to find all keys to update, then remove entry from value sets
-        // tag_values: Prefix search to find all keys to remove
+        // tag_data: Prefix search to find all keys to remove
         // Remove from tag_entries: Use retrieved tag name to find key to remove
 
-        // Metatag "tag_name": lookup tag_values: (entry, "tag_name") -> deser to tag name for tag entries, then delete_tag_name
+        // Metatag "tag_name": lookup tag_data: (entry, "tag_name") -> deser to tag name for tag entries, then delete_tag_name
 
         todo!()
     }
@@ -242,7 +241,7 @@ impl<T: DbApi> TagsDatabase<T> {
         // Take from entries_by_tag: taken value is used to update tags_by_entry
         // Remove from entries_by_data: Prefix search to find all keys to remove
         // Update tags_by_entry: Use value taken from entries_by_tag to find all keys to update, then remove tag from value sets
-        // Remove from tag_values: Use value taken from entries_by_tag to find all keys to remove
+        // Remove from tag_data: Use value taken from entries_by_tag to find all keys to remove
         // Remove from tag_entries
 
         let entries = self
@@ -270,7 +269,7 @@ impl<T: DbApi> TagsDatabase<T> {
 
             let key = (entry, tag);
             self.database
-                .remove(&mut self.tag_values, &key)
+                .remove(&mut self.tag_data, &key)
                 .into_diagnostic()?;
         }
 
@@ -286,7 +285,7 @@ impl<T: DbApi> TagsDatabase<T> {
         // Update entries_by_tag: insert entry into value set
         // entries_by_data: Not updated as this tag has no data
         // Update tags_by_entry: insert tag into value set
-        // tag_values: Not updated as this tag has no data
+        // tag_data: Not updated as this tag has no data
         // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
 
         // TODO: verify this tag really has no data
@@ -302,39 +301,39 @@ impl<T: DbApi> TagsDatabase<T> {
         Ok(())
     }
 
-    fn insert_tag_value_on_entry(
+    fn insert_tag_data_on_entry(
         &mut self,
         tag: Tag,
         entry: Entry,
-        value: Buffer,
+        data: Buffer,
     ) -> miette::Result<()> {
         // Update entries_by_tag: insert entry into value set
         // Update entries_by_data: insert entry into value set
         // Update tags_by_entry: insert tag into value set
-        // Insert into tag_values
+        // Insert into tag_data
         // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
 
         // TODO: verify data is correct for this tag (tag has data and data is of correct type)
 
-        let value = value.into();
+        let data = data.into();
 
         self.database
             .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
             .into_diagnostic()?;
 
-        let key = (tag, value);
+        let key = (tag, data);
         self.database
             .fetch_update_single(&mut self.entries_by_data, &key, &entry)
             .into_diagnostic()?;
 
-        let (tag, value) = key;
+        let (tag, data) = key;
         self.database
             .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
             .into_diagnostic()?;
 
         let key = (entry, tag);
         self.database
-            .insert(&mut self.tag_values, &key, &value)
+            .insert(&mut self.tag_data, &key, &data)
             .into_diagnostic()
     }
 
@@ -407,7 +406,7 @@ impl TagsDatabase {
                 entries_by_tag: self.entries_by_tag,
                 entries_by_data: self.entries_by_data,
                 tags_by_entry: self.tags_by_entry,
-                tag_values: self.tag_values,
+                tag_data: self.tag_data,
                 tag_entries: self.tag_entries,
                 generator: self.generator,
             })
@@ -424,7 +423,7 @@ impl TagsDatabase<Transaction> {
                 entries_by_tag: self.entries_by_tag,
                 entries_by_data: self.entries_by_data,
                 tags_by_entry: self.tags_by_entry,
-                tag_values: self.tag_values,
+                tag_data: self.tag_data,
                 tag_entries: self.tag_entries,
                 generator: self.generator,
             },
@@ -438,7 +437,7 @@ impl TagsDatabase<Transaction> {
             entries_by_tag: self.entries_by_tag,
             entries_by_data: self.entries_by_data,
             tags_by_entry: self.tags_by_entry,
-            tag_values: self.tag_values,
+            tag_data: self.tag_data,
             tag_entries: self.tag_entries,
             generator: self.generator,
         }
