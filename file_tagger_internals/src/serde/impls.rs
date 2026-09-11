@@ -4,7 +4,7 @@ use byteview::ByteView;
 use estr::Estr;
 use thiserror::Error;
 
-use crate::serde::{DerefProxy, LENGTH_PREFIX_BYTES, Writer};
+use crate::serde::{LENGTH_PREFIX_BYTES, Writer};
 
 use super::{
     AsBytes, Buffer, Bytes, FromBytes, Prefixable, Reader, SizeHint, SmallSortedSet, SmallVec,
@@ -21,10 +21,15 @@ macro_rules! impl_serde_numerical {
             }
 
             impl AsBytes for $ty {
-                type Bytes = DerefProxy<[u8; size_of::<Self>()]>;
+                type Bytes = Buffer;
 
                 fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-                    Bytes::Owned(self.to_le_bytes().into())
+                    // SAFETY: primitive numerical types are POD and as such are always safe to cast to raw bytes
+                    // See also: <https://doc.rust-lang.org/stable/src/core/num/uint_macros.rs.html#4016-4017>
+                    let bytes = unsafe { std::slice::from_raw_parts(std::ptr::from_ref(self) as *const u8, size_of::<Self>()) };
+                    // The safe alternative would be using the `to_le_bytes()` methods and returning the array as `Bytes::Owned`,
+                    // but that makes these impls more annoying to use for Reasons
+                    Bytes::Borrowed(bytes)
                 }
             }
 
@@ -44,14 +49,19 @@ impl_serde_numerical!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64
 /* bool */
 
 impl SizeHint for bool {
-    const SIZE_HINT: Option<usize> = Some(1);
+    const SIZE_HINT: Option<usize> = Some(size_of::<Self>());
 }
 
 impl AsBytes for bool {
-    type Bytes = DerefProxy<[u8; 1]>;
+    type Bytes = Buffer;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Owned([*self as _].into())
+        // SAFETY: `bool` is really just a `u8` that is always either `0` or `1`,
+        // so this is always safe for the same reason that this is safe for the integer types
+        let bytes = unsafe {
+            std::slice::from_raw_parts(std::ptr::from_ref(self) as *const u8, size_of::<Self>())
+        };
+        Bytes::Borrowed(bytes)
     }
 }
 
