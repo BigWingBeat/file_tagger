@@ -432,3 +432,85 @@ const INLINE_SIZE: usize = cfg_select! {
 pub type SmallVec<T> = smallvec::SmallVec<[T; INLINE_SIZE]>;
 
 pub type SmallSortedSet<T> = small_sorted_set::SmallSortedSet<T, INLINE_SIZE>;
+
+#[cfg(test)]
+mod test {
+    use std::{assert_matches, convert::Infallible};
+
+    use super::{
+        AsBytes, Buffer, BytesInto, BytesIntoError, FromBytes, Reader, SizeHint, UnexpectedEof,
+        Writer,
+    };
+
+    #[derive(Debug)]
+    struct ErrDeser;
+
+    impl SizeHint for ErrDeser {
+        const SIZE_HINT: Option<usize> = Some(0);
+    }
+
+    impl FromBytes for ErrDeser {
+        type Error = Self;
+
+        fn try_from(_: &mut Reader) -> Result<Self, Self::Error> {
+            Err(Self)
+        }
+    }
+
+    #[derive(Debug)]
+    struct OkDeser;
+
+    impl SizeHint for OkDeser {
+        const SIZE_HINT: Option<usize> = Some(0);
+    }
+
+    impl FromBytes for OkDeser {
+        type Error = Infallible;
+
+        fn try_from(_: &mut Reader) -> Result<Self, Self::Error> {
+            Ok(Self)
+        }
+    }
+
+    #[test]
+    fn bytes_into() {
+        let result: Result<ErrDeser, _> = Buffer::default().bytes_into();
+        assert_matches!(result, Err(BytesIntoError::Deser(ErrDeser)));
+
+        let result: Result<ErrDeser, _> = [0u8].bytes_into();
+        assert_matches!(result, Err(BytesIntoError::Deser(ErrDeser)));
+
+        let result: Result<ErrDeser, _> = [1u8, 2u8, 3u8, 4u8].bytes_into();
+        assert_matches!(result, Err(BytesIntoError::Deser(ErrDeser)));
+
+        let result: Result<OkDeser, _> = Buffer::default().bytes_into();
+        assert_matches!(result, Ok(OkDeser));
+
+        let result: Result<OkDeser, _> = [0u8].bytes_into();
+        assert_matches!(result, Err(BytesIntoError::ExpectedEof(1, 1)));
+
+        let result: Result<OkDeser, _> = [1u8, 2u8, 3u8, 4u8].bytes_into();
+        assert_matches!(result, Err(BytesIntoError::ExpectedEof(4, 4)));
+
+        let result: Result<[u8; 0], _> = Buffer::default().bytes_into();
+        assert_matches!(result, Ok([]));
+
+        let result: Result<[u8; 0], _> = [0u8].bytes_into();
+        assert_matches!(result, Err(BytesIntoError::ExpectedEof(1, 1)));
+
+        let result: Result<[u8; 1], _> = Buffer::default().bytes_into();
+        assert_matches!(result, Err(BytesIntoError::Deser(UnexpectedEof(1, 0))));
+
+        let result: Result<[u8; 1], _> = [0u8].bytes_into();
+        assert_matches!(result, Ok([0]));
+
+        let result: Result<[u8; 2], _> = Buffer::default().bytes_into();
+        assert_matches!(result, Err(BytesIntoError::Deser(UnexpectedEof(2, 0))));
+
+        let result: Result<[u8; 2], _> = [0u8].bytes_into();
+        assert_matches!(result, Err(BytesIntoError::Deser(UnexpectedEof(2, 1))));
+
+        let result: Result<[u8; 2], _> = [0u8, 1u8].bytes_into();
+        assert_matches!(result, Ok([0, 1]));
+    }
+}
