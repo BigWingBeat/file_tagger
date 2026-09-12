@@ -7,5 +7,5 @@ use crate::Tag;
 pub static META_TAG: LazyLock<Tag> = LazyLock::new(|| "tag_name".into());
 
 /// Well-known tag that is applied to tag entries.
-/// - Tag Data: The kind of data that this tag has
+/// - Tag Data: [`TagDataType`] value, the kind of data that this tag has
 pub static META_DATA: LazyLock<Tag> = LazyLock::new(|| "tag_data_type".into());
