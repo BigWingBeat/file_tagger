@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, marker::PhantomData, path::Path};
+use std::{borrow::Borrow, convert::Infallible, marker::PhantomData, path::Path};
 
 use thiserror::Error;
 
@@ -39,6 +39,20 @@ pub enum DeserError<Value: FromBytes> {
     Database(#[from] backend::Error),
     #[error(transparent)]
     Deser(#[from] BytesIntoError<Value>),
+}
+
+impl<T: FromBytes<Error = Infallible>> DeserError<T> {
+    pub fn map_type<U: FromBytes>(self) -> DeserError<U> {
+        match self {
+            Self::Database(e) => DeserError::Database(e),
+            Self::Deser(e) => match e {
+                BytesIntoError::ExpectedEof(rem, total) => {
+                    DeserError::Deser(BytesIntoError::ExpectedEof(rem, total))
+                }
+                BytesIntoError::Deser(e) => match e {},
+            },
+        }
+    }
 }
 
 /// Trait bounds
