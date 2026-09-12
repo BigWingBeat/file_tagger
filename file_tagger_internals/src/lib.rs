@@ -16,7 +16,7 @@ pub use crate::{
         ActiveOverlay, ActiveView, Edit, EditEntry, Launcher, LauncherState, SearchMenu,
         SearchResults, SearchState, UnrecoverableError,
     },
-    tags_db::{DatabaseState, Entry, Tag, TagsDatabase},
+    tags_db::{AnyRange, DatabaseState, Entry, Tag, TagsDatabase},
 };
 
 // We could use the Cargo env var macros for this but as far as I'm aware there aren't any for workspace name

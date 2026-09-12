@@ -159,6 +159,8 @@ impl Display for Tag {
 ///
 /// # Example
 /// ```
+/// # use std::ops::*;
+/// # use file_tagger_internals::AnyRange;
 /// fn any_range<T>(range: AnyRange<T>) {
 ///    match range {
 ///        // `start..end` or `Range`
@@ -177,7 +179,7 @@ impl Display for Tag {
 /// }
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct AnyRange<T>(Option<T>, Bound<T>);
+pub struct AnyRange<T>(pub Option<T>, pub Bound<T>);
 
 #[derive(Debug, Error)]
 #[error("{0} is outside the range {1}")]
