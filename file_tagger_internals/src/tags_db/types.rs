@@ -359,6 +359,8 @@ impl<T: FromBytes> FromBytes for AnyRange<T> {
 }
 
 /// The kind of data that a tag has
+///
+/// The discriminants (including their order!) should be kept in sync with `TagData`
 #[repr(u8)]
 pub enum TagDataType {
     /// The tag has no associated data
@@ -384,6 +386,29 @@ impl TagDataType {
         // SAFETY: This is safe as the type has `#[repr(u8)]`
         // See <https://doc.rust-lang.org/stable/reference/items/enumerations.html#pointer-casting>
         unsafe { *(self as *const Self as *const u8) }
+    }
+
+    pub fn type_matches(&self, data: &TagData) -> bool {
+        // This relies on the order of the discriminants being the same
+        self.discriminant() == data.discriminant()
+    }
+
+    /// Checks that the data is of the correct type, and that it is within the allowed set of values (for `Enum` and numerical)
+    pub fn verify_data(&self, data: &TagData) -> Result<(), ()> {
+        if !self.type_matches(data) {
+            return Err(());
+        }
+
+        let valid = match (self, data) {
+            (TagDataType::Enum(variants), TagData::Enum(value)) => variants.contains(value),
+            (TagDataType::Unsigned(range), TagData::Unsigned(u)) => range.contains(u),
+            (TagDataType::Signed(range), TagData::Signed(i)) => range.contains(i),
+            (TagDataType::Float(range), TagData::Float(f)) => range.contains(f),
+            // `type_matches` verifies every other variant
+            _ => true,
+        };
+
+        valid.ok_or(())
     }
 }
 
@@ -477,9 +502,14 @@ impl FromBytes for TagDataType {
 }
 
 /// A strongly-typed instance of tag data containing the deserialized value
-pub enum TypedTagData {
-    /// The tag has no associated data
-    None,
+///
+/// The discriminants (including their order!) should be kept in sync with `TagDataType`
+#[repr(u8)]
+pub enum TagData {
+    /// The tag has no associated data.
+    ///
+    /// This variant cannot ever be constructed, and exists only to ensure the discriminant values match `TagDataType`
+    None(Infallible),
     /// A UTF-8 string
     String(String),
     /// An enum, a fixed set of allowed UTF-8 strings.
@@ -496,13 +526,21 @@ pub enum TypedTagData {
     Buffer(Buffer),
 }
 
+impl TagData {
+    pub fn discriminant(&self) -> u8 {
+        // SAFETY: This is safe as the type has `#[repr(u8)]`
+        // See <https://doc.rust-lang.org/stable/reference/items/enumerations.html#pointer-casting>
+        unsafe { *(self as *const Self as *const u8) }
+    }
+}
+
 /// hack
-impl SizeHint for TypedTagData {
+impl SizeHint for TagData {
     const SIZE_HINT: Option<usize> = unreachable!();
 }
 
 /// hack
-impl FromBytes for TypedTagData {
+impl FromBytes for TagData {
     type Error = TagDataError;
 
     fn try_from(_: &mut Reader) -> Result<Self, Self::Error> {
@@ -510,8 +548,23 @@ impl FromBytes for TypedTagData {
     }
 }
 
-/// An untyped instance of tag data containing the raw serialized value
-pub struct TagData(Buffer);
+impl AsBytes for TagData {
+    type Bytes = Buffer;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        // We don't need to encode our discriminant as that is stored in the corresponding `TagDataType` instance for this tag
+        match self {
+            TagData::None(nuh_uh) => match *nuh_uh {},
+            TagData::String(s) => Bytes::Borrowed(s.as_bytes()),
+            TagData::Enum(s) => Bytes::Borrowed(s.as_str().as_bytes()),
+            TagData::Bool(b) => b.as_bytes(),
+            TagData::Unsigned(u) => u.as_bytes(),
+            TagData::Signed(i) => i.as_bytes(),
+            TagData::Float(f) => f.as_bytes(),
+            TagData::Buffer(buf) => buf.as_bytes(),
+        }
+    }
+}
 
 /// Because `SmallVec` (and `Vec`) don't impl `Display`...
 ///
@@ -543,6 +596,8 @@ macro_rules! fmt_vec {
 
 #[derive(Debug, Error)]
 pub enum TagDataError {
+    #[error("tag must have data to deserialize")]
+    None,
     #[error("error while deserializing string data")]
     String(#[source] Utf8Error),
     #[error("error while deserializing enum data")]
@@ -565,10 +620,7 @@ pub enum TagDataError {
 
 impl TagData {
     /// Deserialize the raw tag data to a strongly-typed value, according to the provided type metadata
-    pub fn deserialize(
-        self,
-        metadata: &TagDataType,
-    ) -> Result<TypedTagData, BytesIntoError<TypedTagData>> {
+    pub fn deserialize(buf: Buffer, metadata: &TagDataType) -> Result<Self, BytesIntoError<Self>> {
         macro_rules! deserialize {
             ($buf:ident, $variant:ident, $deser_err:ident $(, $validate:expr)?) => {
                 $buf.bytes_into()
@@ -577,13 +629,12 @@ impl TagData {
                         BytesIntoError::Deser(e) => BytesIntoError::Deser(TagDataError::$deser_err(e)),
                     })
                     $( .and_then(|data| $validate(data).map_err(|e| BytesIntoError::Deser(e))) )?
-                    .map(TypedTagData::$variant)
+                    .map(Self::$variant)
             };
         }
 
-        let Self(buf) = self;
         match metadata {
-            TagDataType::None => Ok(TypedTagData::None),
+            TagDataType::None => Err(BytesIntoError::Deser(TagDataError::None)),
             TagDataType::String => deserialize!(buf, String, String),
             TagDataType::Enum(variants) => {
                 deserialize!(buf, Enum, EnumDeser, |s| variants
@@ -607,38 +658,7 @@ impl TagData {
                     .validate_range(i)
                     .map_err(TagDataError::FloatRange))
             }
-            TagDataType::Buffer => Ok(TypedTagData::Buffer(buf)),
+            TagDataType::Buffer => Ok(Self::Buffer(buf)),
         }
-    }
-
-    /// Should only be used for values gotten from the `META_DATA` special tag
-    pub fn deser_meta_data(self) -> Result<TagDataType, BytesIntoError<TagDataType>> {
-        self.0.bytes_into()
-    }
-}
-
-impl SizeHint for TagData {
-    const SIZE_HINT: Option<usize> = None;
-}
-
-impl AsBytes for TagData {
-    type Bytes = Buffer;
-
-    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Borrowed(self.0.as_ref())
-    }
-}
-
-impl FromBytes for TagData {
-    type Error = Infallible;
-
-    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        Ok(Self(bytes.take_all().into()))
-    }
-}
-
-impl From<Buffer> for TagData {
-    fn from(data: Buffer) -> Self {
-        Self(data)
     }
 }
