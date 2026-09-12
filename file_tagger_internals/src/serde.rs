@@ -376,7 +376,7 @@ where
     }
 }
 
-impl<B: AsRef<[u8]>, T: FromBytes> BytesInto<T> for B {
+impl<B: AsRef<[u8]> + ?Sized, T: FromBytes> BytesInto<T> for B {
     type Error = BytesIntoError<T>;
 
     fn bytes_into(&self) -> Result<T, Self::Error> {
