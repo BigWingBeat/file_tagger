@@ -4,11 +4,9 @@ use byteview::ByteView;
 use estr::Estr;
 use thiserror::Error;
 
-use crate::serde::{LENGTH_PREFIX_BYTES, Writer};
-
 use super::{
-    AsBytes, Buffer, Bytes, FromBytes, Prefixable, Reader, SizeHint, SmallSortedSet, SmallVec,
-    UnexpectedEof,
+    AsBytes, Buffer, Bytes, DerefProxy, FromBytes, LENGTH_PREFIX_BYTES, Prefixable, Reader,
+    SizeHint, SmallSortedSet, SmallVec, UnexpectedEof, Writer,
 };
 
 /* Primitive numerical types */
@@ -81,6 +79,28 @@ impl FromBytes for bool {
             2.. => Err(BoolError::Deser(b)),
             _ => Ok(b != 0),
         })
+    }
+}
+
+/* Arrays of bytes */
+
+impl<const N: usize> SizeHint for [u8; N] {
+    const SIZE_HINT: Option<usize> = Some(N);
+}
+
+impl<const N: usize> FromBytes for [u8; N] {
+    type Error = UnexpectedEof;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        bytes.read_exact()
+    }
+}
+
+impl<const N: usize> AsBytes for [u8; N] {
+    type Bytes = DerefProxy<Self>;
+
+    fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        Bytes::Borrowed(self.as_slice())
     }
 }
 
