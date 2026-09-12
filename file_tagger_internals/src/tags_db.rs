@@ -15,13 +15,13 @@ use crate::{
     database::{
         self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
     },
-    serde::{AsBytes, FromBytes, Serde, SmallSortedSet},
+    serde::{AsBytes, BytesInto, FromBytes, Serde, SmallSortedSet},
     tags_db::tags::{META_DATA, META_TAG},
 };
 
 pub use types::{
     AnyRange, AnyRangeError, Entry, EntryParseError, RangeError, Tag, TagData, TagDataError,
-    TagDataType, TagDataTypeError, TypedTagData,
+    TagDataType, TagDataTypeError,
 };
 
 #[derive(Clone)]
@@ -72,7 +72,7 @@ impl DatabaseState {
     }
 
     pub fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
-        self.db.tag_entry_by_name(tag)
+        self.db.get_tag_entry(tag)
     }
 
     pub fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
@@ -157,30 +157,6 @@ impl<T: DbApi> TagsDatabase<T> {
         Ok(())
     }
 
-    fn get_tag_data(&self, entry: Entry, tag: Tag) -> miette::Result<Option<TypedTagData>> {
-        let tag_entry = self
-            .db
-            .get(&self.tag_entries, &tag)
-            .into_diagnostic()
-            .and_then(|entry| entry.ok_or_else(|| miette!("missing tag entry")))?;
-
-        let metadata = self
-            .db
-            .get(&self.tag_data, &(tag_entry, *META_DATA))
-            .into_diagnostic()
-            .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
-
-        let metadata = metadata.deser_meta_data().into_diagnostic()?;
-
-        self.db
-            .get(&self.tag_data, &(entry, tag))
-            .into_diagnostic()
-            .and_then(|data| {
-                data.map(|data| data.deserialize(&metadata).into_diagnostic())
-                    .transpose()
-            })
-    }
-
     /// If this tag already exists, this is effectively a no-op.
     fn create_tag(&mut self, tag: Tag) -> miette::Result<()> {
         // Update entries_by_tag: create empty value set (unless it already exists)
@@ -203,17 +179,162 @@ impl<T: DbApi> TagsDatabase<T> {
             // The above closure always returns `Some`
             .unwrap();
 
-        self.insert_tag_data_on_entry(*META_TAG, entry, tag.as_bytes().as_ref().into())?;
+        // self.insert_tag_data_on_entry(entry, *META_TAG, tag.as_bytes().as_ref().into())?;
+        self.db
+            .insert(
+                &mut self.tag_data,
+                &(entry, *META_TAG),
+                &TagData::String(tag.as_str().into()),
+            )
+            .into_diagnostic()?;
 
         Ok(())
+    }
+
+    fn get_tag_entry(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
+        self.db.get(&self.tag_entries, tag)
+    }
+
+    fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
+        self.get_tag_entry(tag).map(|entry| entry.is_some())
+    }
+
+    fn get_tag_metadata(
+        &self,
+        tag_entry: Entry,
+    ) -> Result<Option<TagDataType>, DeserError<TagDataType>> {
+        // We do this to special-case the deserialization because `TagData` cannot be
+        // deserialized normally, and does not include a variant for `TagDataType` anyway
+        let table = &self.tag_data;
+        // SAFETY: `Table` is `#[repr(transparent)]` and we are only transmuting the phantomdata/type parameters
+        let table = unsafe {
+            std::mem::transmute::<&Table<(Entry, Tag), TagData>, &Table<(Entry, Tag), Buffer>>(
+                table,
+            )
+        };
+
+        self.db
+            .get(table, &(tag_entry, *META_DATA))
+            .map_err(DeserError::map_type)
+            .and_then(|b| b.map(|b| b.bytes_into().map_err(Into::into)).transpose())
+    }
+
+    fn get_tag_data(&self, entry: Entry, tag: Tag) -> miette::Result<Option<TagData>> {
+        let tag_entry = self
+            .get_tag_entry(&tag)
+            .into_diagnostic()
+            .and_then(|entry| entry.ok_or_else(|| miette!("missing tag entry")))?;
+
+        let metadata = self
+            .get_tag_metadata(tag_entry)
+            .into_diagnostic()
+            .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
+
+        // We do this to special-case the deserialization because `TagData` cannot be deserialized normally
+        let table = &self.tag_data;
+        // SAFETY: `Table` is `#[repr(transparent)]` and we are only transmuting the phantomdata/type parameters
+        let table = unsafe {
+            std::mem::transmute::<&Table<(Entry, Tag), TagData>, &Table<(Entry, Tag), Buffer>>(
+                table,
+            )
+        };
+
+        self.db
+            .get(table, &(entry, tag))
+            .map_err(DeserError::map_type)
+            .and_then(|data| {
+                data.map(|data| TagData::deserialize(data, &metadata).map_err(Into::into))
+                    .transpose()
+            })
+            .into_diagnostic()
+    }
+
+    /// If this tag is already applied to this entry, this is effectively a no-op. For tags with values, it updates the value.
+    ///
+    /// You can think of this as creating a new instance of the tag.
+    fn insert_tag_on_entry(&mut self, tag: Tag, entry: Entry) -> miette::Result<()> {
+        // Update entries_by_tag: insert entry into value set
+        // entries_by_data: Not updated as this tag has no data
+        // Update tags_by_entry: insert tag into value set
+        // tag_data: Not updated as this tag has no data
+        // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
+
+        let tag_entry = self
+            .get_tag_entry(&tag)
+            .into_diagnostic()
+            .and_then(|entry| entry.ok_or_else(|| miette!("missing tag entry")))?;
+
+        let metadata = self
+            .get_tag_metadata(tag_entry)
+            .into_diagnostic()
+            .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
+
+        if !matches!(metadata, TagDataType::None) {
+            return Err(miette!("can't insert without data on tag with data"));
+        }
+
+        self.db
+            .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
+            .into_diagnostic()?;
+
+        self.db
+            .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
+            .into_diagnostic()?;
+
+        Ok(())
+    }
+
+    fn insert_tag_data_on_entry(
+        &mut self,
+        entry: Entry,
+        tag: Tag,
+        data: TagData,
+    ) -> miette::Result<()> {
+        // Update entries_by_tag: insert entry into value set
+        // Update entries_by_data: insert entry into value set
+        // Update tags_by_entry: insert tag into value set
+        // Insert into tag_data
+        // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
+
+        let tag_entry = self
+            .get_tag_entry(&tag)
+            .into_diagnostic()
+            .and_then(|entry| entry.ok_or_else(|| miette!("missing tag entry")))?;
+
+        let metadata = self
+            .get_tag_metadata(tag_entry)
+            .into_diagnostic()
+            .and_then(|data| data.ok_or_else(|| miette!("missing tag metadata")))?;
+
+        if metadata.verify_data(&data).is_err() {
+            return Err(miette!("invalid data"));
+        }
+
+        self.db
+            .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
+            .into_diagnostic()?;
+
+        let key = (tag, data);
+        self.db
+            .fetch_update_single(&mut self.entries_by_data, &key, &entry)
+            .into_diagnostic()?;
+
+        let (tag, data) = key;
+        self.db
+            .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
+            .into_diagnostic()?;
+
+        let key = (entry, tag);
+        self.db
+            .insert(&mut self.tag_data, &key, &data)
+            .into_diagnostic()
     }
 
     /// If the tag does not exist, this is effectively a no-op.
     ///
     /// Potentially very destructive! Use with care.
     fn delete_tag(&mut self, tag: Tag) -> miette::Result<()> {
-        self.db
-            .get(&self.tag_entries, &tag)
+        self.get_tag_entry(&tag)
             .into_diagnostic()
             .and_then(|entry| entry.map_or(Ok(()), |entry| self.delete_entry(entry)))
     }
@@ -261,7 +382,7 @@ impl<T: DbApi> TagsDatabase<T> {
             self.db
                 .fetch_update(&mut self.tags_by_entry, &entry, |mut values| {
                     if let Some(values) = &mut values {
-                        values.remove(&tag);
+                        let _ = values.remove(&tag);
                     }
                     values
                 })
@@ -274,75 +395,6 @@ impl<T: DbApi> TagsDatabase<T> {
         self.db
             .remove(&mut self.tag_entries, &tag)
             .into_diagnostic()
-    }
-
-    /// If this tag is already applied to this entry, this is effectively a no-op. For tags with values, it updates the value.
-    ///
-    /// You can think of this as creating a new instance of the tag.
-    fn insert_tag_on_entry(&mut self, tag: Tag, entry: Entry) -> miette::Result<()> {
-        // Update entries_by_tag: insert entry into value set
-        // entries_by_data: Not updated as this tag has no data
-        // Update tags_by_entry: insert tag into value set
-        // tag_data: Not updated as this tag has no data
-        // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
-
-        // TODO: verify this tag really has no data
-
-        self.db
-            .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
-            .into_diagnostic()?;
-
-        self.db
-            .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
-            .into_diagnostic()?;
-
-        Ok(())
-    }
-
-    fn insert_tag_data_on_entry(
-        &mut self,
-        tag: Tag,
-        entry: Entry,
-        data: Buffer,
-    ) -> miette::Result<()> {
-        // Update entries_by_tag: insert entry into value set
-        // Update entries_by_data: insert entry into value set
-        // Update tags_by_entry: insert tag into value set
-        // Insert into tag_data
-        // tag_entries: Not updated as the tag itself is not being mutated, just a new instance being created
-
-        // TODO: verify data is correct for this tag (tag has data and data is of correct type)
-
-        let data = data.into();
-
-        self.db
-            .fetch_update_single(&mut self.entries_by_tag, &tag, &entry)
-            .into_diagnostic()?;
-
-        let key = (tag, data);
-        self.db
-            .fetch_update_single(&mut self.entries_by_data, &key, &entry)
-            .into_diagnostic()?;
-
-        let (tag, data) = key;
-        self.db
-            .fetch_update_single(&mut self.tags_by_entry, &entry, &tag)
-            .into_diagnostic()?;
-
-        let key = (entry, tag);
-        self.db
-            .insert(&mut self.tag_data, &key, &data)
-            .into_diagnostic()
-    }
-
-    fn tag_entry_by_name(&self, tag: &Tag) -> Result<Option<Entry>, DeserError<Entry>> {
-        self.db.get(&self.tag_entries, tag)
-    }
-
-    fn tag_exists(&self, tag: &Tag) -> Result<bool, DeserError<Entry>> {
-        self.db
-            .get(&self.tag_entries, tag)
-            .map(|entry| entry.is_some())
     }
 
     fn search_tags_names_by_prefix(
