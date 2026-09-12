@@ -2,11 +2,13 @@ use std::{convert::Infallible, str::Utf8Error};
 
 use byteview::ByteView;
 use estr::Estr;
+use small_sorted_set::SmallSortedSet;
+use smallvec::SmallVec;
 use thiserror::Error;
 
 use super::{
     AsBytes, Buffer, Bytes, DerefProxy, FromBytes, LENGTH_PREFIX_BYTES, Prefixable, Reader,
-    SizeHint, SmallSortedSet, SmallVec, UnexpectedEof, Writer,
+    SizeHint, UnexpectedEof, Writer,
 };
 
 /* Primitive numerical types */
@@ -188,11 +190,11 @@ impl<T: AsRef<str> + ?Sized> Prefixable<T> for Estr {
 
 /* SmallVec */
 
-impl<T> SizeHint for SmallVec<T> {
+impl<T, const N: usize> SizeHint for SmallVec<[T; N]> {
     const SIZE_HINT: Option<usize> = None;
 }
 
-impl<T> AsBytes for SmallVec<T>
+impl<T, const N: usize> AsBytes for SmallVec<[T; N]>
 where
     T: AsBytes,
 {
@@ -250,7 +252,7 @@ where
     }
 }
 
-impl<T> FromBytes for SmallVec<T>
+impl<T, const N: usize> FromBytes for SmallVec<[T; N]>
 where
     T: FromBytes,
 {
@@ -293,11 +295,11 @@ where
 
 /* SmallSortedSet */
 
-impl<T> SizeHint for SmallSortedSet<T> {
+impl<T, const N: usize> SizeHint for SmallSortedSet<T, N> {
     const SIZE_HINT: Option<usize> = None;
 }
 
-impl<T: AsBytes> AsBytes for SmallSortedSet<T> {
+impl<T: AsBytes, const N: usize> AsBytes for SmallSortedSet<T, N> {
     type Bytes = Buffer;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
@@ -305,7 +307,7 @@ impl<T: AsBytes> AsBytes for SmallSortedSet<T> {
     }
 }
 
-impl<T: FromBytes + Ord> FromBytes for SmallSortedSet<T> {
+impl<T: FromBytes + Ord, const N: usize> FromBytes for SmallSortedSet<T, N> {
     type Error = SmallVecError<T>;
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
