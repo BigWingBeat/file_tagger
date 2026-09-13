@@ -422,3 +422,177 @@ impl<T: AsBytes, U> Prefixable<T> for (T, U) {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::super::{AsBytes, BytesInto};
+
+    macro_rules! serde_roundtrip {
+        ($ty:ty, $value:expr, $bytes:expr) => {{
+            let value: $ty = $value;
+            let bytes = value.as_bytes();
+            assert_eq!(bytes.as_ref(), $bytes);
+            let value: $ty = bytes.bytes_into().unwrap();
+            assert_eq!(value, $value);
+        }};
+    }
+
+    #[test]
+    fn primitives() {
+        serde_roundtrip!(u8, 0, [0]);
+        serde_roundtrip!(u8, 1, [1]);
+        serde_roundtrip!(u8, 255, [255]);
+
+        serde_roundtrip!(u16, 0, [0, 0]);
+        serde_roundtrip!(u16, 1, [1, 0]);
+        serde_roundtrip!(u16, 255, [255, 0]);
+        serde_roundtrip!(u16, 256, [0, 1]);
+        serde_roundtrip!(u16, 65280, [0, 255]);
+        serde_roundtrip!(u16, 65535, [255, 255]);
+
+        serde_roundtrip!(u32, 0, [0, 0, 0, 0]);
+        serde_roundtrip!(u32, 1, [1, 0, 0, 0]);
+        serde_roundtrip!(u32, 255, [255, 0, 0, 0]);
+        serde_roundtrip!(u32, 256, [0, 1, 0, 0]);
+        serde_roundtrip!(u32, 65280, [0, 255, 0, 0]);
+        serde_roundtrip!(u32, 65536, [0, 0, 1, 0]);
+        serde_roundtrip!(u32, 4294967295, [255, 255, 255, 255]);
+
+        serde_roundtrip!(u64, 0, [0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(u64, 1, [1, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(u64, 4294967296, [0, 0, 0, 0, 1, 0, 0, 0]);
+        serde_roundtrip!(
+            u64,
+            18446744073709551615,
+            [255, 255, 255, 255, 255, 255, 255, 255]
+        );
+
+        serde_roundtrip!(u128, 0, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(u128, 1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(
+            u128,
+            18446744073709551616,
+            [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            u128,
+            340282366920938463463374607431768211455,
+            [
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            ]
+        );
+
+        serde_roundtrip!(i8, -128, [128]);
+        serde_roundtrip!(i8, -127, [129]);
+        serde_roundtrip!(i8, -1, [255]);
+        serde_roundtrip!(i8, 0, [0]);
+        serde_roundtrip!(i8, 1, [1]);
+        serde_roundtrip!(i8, 127, [127]);
+
+        serde_roundtrip!(i16, -32768, [0, 128]);
+        serde_roundtrip!(i16, -32767, [1, 128]);
+        serde_roundtrip!(i16, -1, [255, 255]);
+        serde_roundtrip!(i16, 0, [0, 0]);
+        serde_roundtrip!(i16, 1, [1, 0]);
+        serde_roundtrip!(i16, 256, [0, 1]);
+        serde_roundtrip!(i16, 32767, [255, 127]);
+
+        serde_roundtrip!(i32, -2147483648, [0, 0, 0, 128]);
+        serde_roundtrip!(i32, -2147483647, [1, 0, 0, 128]);
+        serde_roundtrip!(i32, -1, [255, 255, 255, 255]);
+        serde_roundtrip!(i32, 0, [0, 0, 0, 0]);
+        serde_roundtrip!(i32, 1, [1, 0, 0, 0]);
+        serde_roundtrip!(i32, 32768, [0, 128, 0, 0]);
+        serde_roundtrip!(i32, 2147483647, [255, 255, 255, 127]);
+
+        serde_roundtrip!(i64, -9223372036854775808, [0, 0, 0, 0, 0, 0, 0, 128]);
+        serde_roundtrip!(i64, -9223372036854775807, [1, 0, 0, 0, 0, 0, 0, 128]);
+        serde_roundtrip!(i64, -1, [255, 255, 255, 255, 255, 255, 255, 255]);
+        serde_roundtrip!(i64, 0, [0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(i64, 1, [1, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(i64, 2147483648, [0, 0, 0, 128, 0, 0, 0, 0]);
+        serde_roundtrip!(
+            i64,
+            9223372036854775807,
+            [255, 255, 255, 255, 255, 255, 255, 127]
+        );
+
+        serde_roundtrip!(
+            i128,
+            -170141183460469231731687303715884105728,
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128]
+        );
+        serde_roundtrip!(
+            i128,
+            -170141183460469231731687303715884105727,
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128]
+        );
+        serde_roundtrip!(
+            i128,
+            -1,
+            [
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
+            ]
+        );
+        serde_roundtrip!(i128, 0, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(i128, 1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(
+            i128,
+            9223372036854775808,
+            [0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            i128,
+            170141183460469231731687303715884105727,
+            [
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127
+            ]
+        );
+
+        serde_roundtrip!(f32, f32::NEG_INFINITY, [0, 0, 128, 255]);
+        serde_roundtrip!(f32, f32::MIN, [255, 255, 127, 255]);
+        serde_roundtrip!(f32, -1.0, [0, 0, 128, 191]);
+        serde_roundtrip!(f32, -0.0, [0, 0, 0, 128]);
+        serde_roundtrip!(f32, 0.0, [0, 0, 0, 0]);
+        serde_roundtrip!(f32, f32::MIN_POSITIVE, [0, 0, 128, 0]);
+        serde_roundtrip!(f32, f32::EPSILON, [0, 0, 0, 52]);
+        serde_roundtrip!(f32, 1.0, [0, 0, 128, 63]);
+        serde_roundtrip!(f32, f32::MAX, [255, 255, 127, 127]);
+        serde_roundtrip!(f32, f32::INFINITY, [0, 0, 128, 127]);
+
+        serde_roundtrip!(f64, f64::NEG_INFINITY, [0, 0, 0, 0, 0, 0, 240, 255]);
+        serde_roundtrip!(f64, f64::MIN, [255, 255, 255, 255, 255, 255, 239, 255]);
+        serde_roundtrip!(f64, -1.0, [0, 0, 0, 0, 0, 0, 240, 191]);
+        serde_roundtrip!(f64, -0.0, [0, 0, 0, 0, 0, 0, 0, 128]);
+        serde_roundtrip!(f64, 0.0, [0, 0, 0, 0, 0, 0, 0, 0]);
+        serde_roundtrip!(f64, f64::MIN_POSITIVE, [0, 0, 0, 0, 0, 0, 16, 0]);
+        serde_roundtrip!(f64, f64::EPSILON, [0, 0, 0, 0, 0, 0, 176, 60]);
+        serde_roundtrip!(f64, 1.0, [0, 0, 0, 0, 0, 0, 240, 63]);
+        serde_roundtrip!(f64, f64::MAX, [255, 255, 255, 255, 255, 255, 239, 127]);
+        serde_roundtrip!(f64, f64::INFINITY, [0, 0, 0, 0, 0, 0, 240, 127]);
+
+        serde_roundtrip!(bool, false, [0]);
+        serde_roundtrip!(bool, true, [1]);
+    }
+
+    #[test]
+    fn array() {}
+
+    #[test]
+    fn buffer() {}
+
+    #[test]
+    fn string() {}
+
+    #[test]
+    fn estr() {}
+
+    #[test]
+    fn smallvec() {}
+
+    #[test]
+    fn smallsortedset() {}
+
+    #[test]
+    fn tuples() {}
+}
