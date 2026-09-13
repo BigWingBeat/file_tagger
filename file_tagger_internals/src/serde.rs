@@ -255,7 +255,7 @@ impl Writer {
         } else {
             // SAFETY: We check that `a.saturating_add(b)` is in-bounds, which implies that `a` and `b` are both also in-bounds
             unsafe {
-                let dst = self.buffer.as_mut_ptr().offset(self.written as _);
+                let dst = self.buffer.as_mut_ptr().add(self.written);
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
             }
             self.written = range_end;
@@ -274,7 +274,7 @@ impl Writer {
         } else {
             // SAFETY: We check that `a.saturating_add(b)` is in-bounds, which implies that `a` and `b` are both also in-bounds
             unsafe {
-                let dst = self.buffer.as_mut_ptr().offset(self.written as _);
+                let dst = self.buffer.as_mut_ptr().add(self.written);
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
             }
             self.written = range_end;
