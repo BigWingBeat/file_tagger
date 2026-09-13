@@ -439,7 +439,7 @@ mod test {
     use std::{assert_matches, convert::Infallible};
 
     use super::{
-        AsBytes, Buffer, BytesInto, BytesIntoError, FromBytes, Reader, SizeHint, UnexpectedEof,
+        BytesInto, BytesIntoError, FromBytes, IncorrectBufferSize, Reader, SizeHint, UnexpectedEof,
         Writer,
     };
 
@@ -797,14 +797,187 @@ mod test {
     }
 
     #[test]
-    fn writer_write_one() {}
+    fn writer_write_one() {
+        let writer = Writer::new(0);
+        assert_matches!(writer.finish().as_deref(), Ok([]));
+
+        let mut writer = Writer::new(0);
+        writer.write_one(0);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(0, usize::MAX)));
+
+        let writer = Writer::new(1);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, 0)));
+
+        let mut writer = Writer::new(1);
+        writer.write_one(12);
+        assert_matches!(writer.finish().as_deref(), Ok([12]));
+
+        let mut writer = Writer::new(1);
+        writer.write_one(12);
+        writer.write_one(24);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, usize::MAX)));
+
+        let writer = Writer::new(2);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, 0)));
+
+        let mut writer = Writer::new(2);
+        writer.write_one(0);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, 1)));
+
+        let mut writer = Writer::new(2);
+        writer.write_one(12);
+        writer.write_one(24);
+        assert_matches!(writer.finish().as_deref(), Ok([12, 24]));
+
+        let mut writer = Writer::new(2);
+        writer.write_one(0);
+        writer.write_one(0);
+        writer.write_one(0);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, usize::MAX)));
+    }
 
     #[test]
-    fn writer_write() {}
+    fn writer_write() {
+        let mut writer = Writer::new(0);
+        writer.write([]);
+        assert_matches!(writer.finish().as_deref(), Ok([]));
+
+        let mut writer = Writer::new(0);
+        writer.write([0]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(0, usize::MAX)));
+
+        let mut writer = Writer::new(1);
+        writer.write([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, 0)));
+
+        let mut writer = Writer::new(1);
+        writer.write([12]);
+        assert_matches!(writer.finish().as_deref(), Ok([12]));
+
+        let mut writer = Writer::new(1);
+        writer.write([12, 24]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, usize::MAX)));
+
+        let mut writer = Writer::new(2);
+        writer.write([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, 0)));
+
+        let mut writer = Writer::new(2);
+        writer.write([0]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, 1)));
+
+        let mut writer = Writer::new(2);
+        writer.write([12, 24]);
+        assert_matches!(writer.finish().as_deref(), Ok([12, 24]));
+
+        let mut writer = Writer::new(2);
+        writer.write([0, 0, 0]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, usize::MAX)));
+    }
 
     #[test]
-    fn writer_write_fixed() {}
+    fn writer_write_fixed() {
+        let mut writer = Writer::new(0);
+        writer.write_fixed::<0>(&[]);
+        assert_matches!(writer.finish().as_deref(), Ok([]));
+
+        let mut writer = Writer::new(0);
+        writer.write_fixed::<1>(&[0]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(0, usize::MAX)));
+
+        let mut writer = Writer::new(1);
+        writer.write_fixed::<0>(&[]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, 0)));
+
+        let mut writer = Writer::new(1);
+        writer.write_fixed::<1>(&[12]);
+        assert_matches!(writer.finish().as_deref(), Ok([12]));
+
+        let mut writer = Writer::new(1);
+        writer.write_fixed::<2>(&[12, 24]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, usize::MAX)));
+
+        let mut writer = Writer::new(2);
+        writer.write_fixed::<0>(&[]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, 0)));
+
+        let mut writer = Writer::new(2);
+        writer.write_fixed::<1>(&[0]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, 1)));
+
+        let mut writer = Writer::new(2);
+        writer.write_fixed::<2>(&[12, 24]);
+        assert_matches!(writer.finish().as_deref(), Ok([12, 24]));
+
+        let mut writer = Writer::new(2);
+        writer.write_fixed::<3>(&[0, 0, 0]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, usize::MAX)));
+    }
 
     #[test]
-    fn writer_write_with_length_prefix() {}
+    fn writer_write_with_length_prefix() {
+        let mut writer = Writer::new(0);
+        writer.write_with_length_prefix([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(0, usize::MAX)));
+
+        let mut writer = Writer::new(1);
+        writer.write_with_length_prefix([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, usize::MAX)));
+
+        let mut writer = Writer::new(2);
+        writer.write_with_length_prefix([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, usize::MAX)));
+
+        let mut writer = Writer::new(3);
+        writer.write_with_length_prefix([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(3, usize::MAX)));
+
+        let mut writer = Writer::new(4);
+        writer.write_with_length_prefix([]);
+        assert_matches!(writer.finish().as_deref(), Ok([0, 0, 0, 0]));
+
+        let mut writer = Writer::new(5);
+        writer.write_with_length_prefix([]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(5, 4)));
+
+        let mut writer = Writer::new(0);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(0, usize::MAX)));
+
+        let mut writer = Writer::new(1);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(1, usize::MAX)));
+
+        let mut writer = Writer::new(2);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(2, usize::MAX)));
+
+        let mut writer = Writer::new(3);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(3, usize::MAX)));
+
+        let mut writer = Writer::new(4);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(4, usize::MAX)));
+
+        let mut writer = Writer::new(5);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish().as_deref(), Ok([1, 0, 0, 0, 23]));
+
+        let mut writer = Writer::new(6);
+        writer.write_with_length_prefix([23]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(6, 5)));
+
+        let mut writer = Writer::new(5);
+        writer.write_with_length_prefix([23, 44]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(5, usize::MAX)));
+
+        let mut writer = Writer::new(6);
+        writer.write_with_length_prefix([23, 44]);
+        assert_matches!(writer.finish().as_deref(), Ok([2, 0, 0, 0, 23, 44]));
+
+        let mut writer = Writer::new(7);
+        writer.write_with_length_prefix([23, 44]);
+        assert_matches!(writer.finish(), Err(IncorrectBufferSize(7, 6)));
+    }
 }
