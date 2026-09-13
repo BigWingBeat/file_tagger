@@ -126,6 +126,7 @@ impl<B: HasBytes + Default> Default for Bytes<'_, B> {
 /// Wrapper around a byte slice to ensure that implementors of `FromBytes` always visibly "consume" the bytes they read,
 /// rather than just invisibly copying them. Preferable to `std::io::Read` because we know that the byte source is just an
 /// in-memory `&[u8]`, so we know we don't have to deal with any possible I/O errors
+#[derive(Debug)]
 pub struct Reader<'a> {
     initial_total_bytes: usize,
     bytes: &'a [u8],
@@ -472,6 +473,15 @@ mod test {
         }
     }
 
+    macro_rules! reader {
+        ($total:literal, $bytes:pat $(,)*) => {
+            Reader {
+                initial_total_bytes: $total,
+                bytes: $bytes,
+            }
+        };
+    }
+
     #[test]
     fn bytes_into() {
         let result: Result<ErrDeser, _> = b"".bytes_into();
@@ -515,5 +525,274 @@ mod test {
 
         let result: Result<[u8; 2], _> = b"abc".bytes_into();
         assert_matches!(result, Err(BytesIntoError::ExpectedEof(1, 3)));
+    }
+
+    #[test]
+    fn reader_read_one() {
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_one(), Ok(b'a'));
+        assert_matches!(reader.read_one(), Ok(b'b'));
+        assert_matches!(reader.read_one(), Ok(b'c'));
+        assert_matches!(reader.read_one(), Ok(b'd'));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_one(), Err(UnexpectedEof(5, 4)));
+        assert_matches!(reader.read_one(), Err(UnexpectedEof(5, 4)));
+
+        let mut reader: Reader<'_> = b"".as_slice().into();
+        assert_matches!(reader.read_one(), Err(UnexpectedEof(1, 0)));
+        assert_matches!(reader.read_one(), Err(UnexpectedEof(1, 0)));
+    }
+
+    #[test]
+    fn reader_read_exact() {
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_exact::<5>(), Err(UnexpectedEof(5, 4)));
+        assert_matches!(reader.read_exact::<5>(), Err(UnexpectedEof(5, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_exact::<4>(), Ok([0x61, 0x62, 0x63, 0x64]));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_exact::<4>(), Err(UnexpectedEof(8, 4)));
+        assert_matches!(reader.read_exact::<4>(), Err(UnexpectedEof(8, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_exact::<3>(), Ok([0x61, 0x62, 0x63]));
+        assert_matches!(reader.read_exact::<3>(), Err(UnexpectedEof(6, 4)));
+        assert_matches!(reader.read_exact::<3>(), Err(UnexpectedEof(6, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_exact::<2>(), Ok([0x61, 0x62]));
+        assert_matches!(reader.read_exact::<2>(), Ok([0x63, 0x64]));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_exact::<2>(), Err(UnexpectedEof(6, 4)));
+        assert_matches!(reader.read_exact::<2>(), Err(UnexpectedEof(6, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_exact::<1>(), Ok([0x61]));
+        assert_matches!(reader.read_exact::<1>(), Ok([0x62]));
+        assert_matches!(reader.read_exact::<1>(), Ok([0x63]));
+        assert_matches!(reader.read_exact::<1>(), Ok([0x64]));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_exact::<1>(), Err(UnexpectedEof(5, 4)));
+        assert_matches!(reader.read_exact::<1>(), Err(UnexpectedEof(5, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.read_exact::<0>(), Ok([]));
+        assert_matches!(reader.read_exact::<0>(), Ok([]));
+        assert_matches!(reader.read_exact::<4>(), Ok([0x61, 0x62, 0x63, 0x64]));
+        assert!(reader.is_empty());
+
+        let mut reader: Reader<'_> = b"".as_slice().into();
+        assert_matches!(reader.read_exact::<0>(), Ok([]));
+        assert_matches!(reader.read_exact::<0>(), Ok([]));
+        assert_matches!(reader.read_exact::<1>(), Err(UnexpectedEof(1, 0)));
+        assert_matches!(reader.read_exact::<5>(), Err(UnexpectedEof(5, 0)));
+    }
+
+    #[test]
+    fn reader_read_length_prefix() {
+        let mut reader: Reader<'_> = [42, 0, 0, 0, 0, 1, 0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Ok(42));
+        assert_matches!(reader.read_length_prefix(), Ok(256));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(12, 8)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(12, 8)));
+
+        let mut reader: Reader<'_> = [0, 0, 0, 0, 0, 0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Ok(0));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 7)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 7)));
+
+        let mut reader: Reader<'_> = [0, 0, 0, 0, 0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Ok(0));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 6)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 6)));
+
+        let mut reader: Reader<'_> = [0, 0, 0, 0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Ok(0));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 5)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 5)));
+
+        let mut reader: Reader<'_> = [0, 0, 0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Ok(0));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 4)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 4)));
+
+        let mut reader: Reader<'_> = [0, 0, 1, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Ok(65536));
+        assert!(reader.is_empty());
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 4)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(8, 4)));
+
+        let mut reader: Reader<'_> = [0, 0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 3)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 3)));
+
+        let mut reader: Reader<'_> = [0, 0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 2)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 2)));
+
+        let mut reader: Reader<'_> = [0].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 1)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 1)));
+
+        let mut reader: Reader<'_> = [].as_slice().into();
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 0)));
+        assert_matches!(reader.read_length_prefix(), Err(UnexpectedEof(4, 0)));
+    }
+
+    #[test]
+    fn reader_split_off() {
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.split_off(5), Err(UnexpectedEof(5, 4)));
+        assert_matches!(reader.split_off(5), Err(UnexpectedEof(5, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(
+            reader.split_off(4),
+            Ok(reader!(4, [0x61, 0x62, 0x63, 0x64]))
+        );
+        assert!(reader.is_empty());
+        assert_matches!(reader.split_off(4), Err(UnexpectedEof(8, 4)));
+        assert_matches!(reader.split_off(4), Err(UnexpectedEof(8, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.split_off(3), Ok(reader!(3, [0x61, 0x62, 0x63])));
+        assert_matches!(reader.split_off(3), Err(UnexpectedEof(6, 4)));
+        assert_matches!(reader.split_off(3), Err(UnexpectedEof(6, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.split_off(2), Ok(reader!(2, [0x61, 0x62])));
+        assert_matches!(reader.split_off(2), Ok(reader!(2, [0x63, 0x64])));
+        assert!(reader.is_empty());
+        assert_matches!(reader.split_off(2), Err(UnexpectedEof(6, 4)));
+        assert_matches!(reader.split_off(2), Err(UnexpectedEof(6, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.split_off(1), Ok(reader!(1, [0x61])));
+        assert_matches!(reader.split_off(1), Ok(reader!(1, [0x62])));
+        assert_matches!(reader.split_off(1), Ok(reader!(1, [0x63])));
+        assert_matches!(reader.split_off(1), Ok(reader!(1, [0x64])));
+        assert!(reader.is_empty());
+        assert_matches!(reader.split_off(1), Err(UnexpectedEof(5, 4)));
+        assert_matches!(reader.split_off(1), Err(UnexpectedEof(5, 4)));
+
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_matches!(reader.split_off(0), Ok(reader!(0, [])));
+        assert_matches!(reader.split_off(0), Ok(reader!(0, [])));
+        assert_matches!(
+            reader.split_off(4),
+            Ok(reader!(4, [0x61, 0x62, 0x63, 0x64]))
+        );
+        assert!(reader.is_empty());
+
+        let mut reader: Reader<'_> = b"".as_slice().into();
+        assert_matches!(reader.split_off(0), Ok(reader!(0, [])));
+        assert_matches!(reader.split_off(0), Ok(reader!(0, [])));
+        assert_matches!(reader.split_off(1), Err(UnexpectedEof(1, 0)));
+        assert_matches!(reader.split_off(5), Err(UnexpectedEof(5, 0)));
+    }
+
+    #[test]
+    fn reader_read_length_prefix_and_split_off() {
+        let mut reader: Reader<'_> = [0, 0, 0, 0, 0x61, 0x62, 0x63, 0x64].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Ok(reader!(0, []))
+        );
+        assert_matches!(reader, reader!(8, [0x61, 0x62, 0x63, 0x64]));
+
+        let mut reader: Reader<'_> = [1, 0, 0, 0, 0x61, 0x62, 0x63, 0x64].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Ok(reader!(1, [0x61]))
+        );
+        assert_matches!(reader, reader!(8, [0x62, 0x63, 0x64]));
+
+        let mut reader: Reader<'_> = [2, 0, 0, 0, 0x61, 0x62, 0x63, 0x64].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Ok(reader!(2, [0x61, 0x62]))
+        );
+        assert_matches!(reader, reader!(8, [0x63, 0x64]));
+
+        let mut reader: Reader<'_> = [3, 0, 0, 0, 0x61, 0x62, 0x63, 0x64].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Ok(reader!(3, [0x61, 0x62, 0x63]))
+        );
+        assert_matches!(reader, reader!(8, [0x64]));
+
+        let mut reader: Reader<'_> = [4, 0, 0, 0, 0x61, 0x62, 0x63, 0x64].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Ok(reader!(4, [0x61, 0x62, 0x63, 0x64]))
+        );
+        assert_matches!(reader, reader!(8, []));
+
+        let mut reader: Reader<'_> = [5, 0, 0, 0, 0x61, 0x62, 0x63, 0x64].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Err(UnexpectedEof(9, 8))
+        );
+
+        let mut reader: Reader<'_> = [0, 0, 0, 0].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Ok(reader!(0, []))
+        );
+        assert_matches!(reader, reader!(4, []));
+
+        let mut reader: Reader<'_> = [0, 0, 0].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Err(UnexpectedEof(4, 3))
+        );
+        assert_matches!(reader, reader!(3, [0, 0, 0]));
+
+        let mut reader: Reader<'_> = [0, 0].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Err(UnexpectedEof(4, 2))
+        );
+        assert_matches!(reader, reader!(2, [0, 0]));
+
+        let mut reader: Reader<'_> = [0].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Err(UnexpectedEof(4, 1))
+        );
+        assert_matches!(reader, reader!(1, [0]));
+
+        let mut reader: Reader<'_> = [].as_slice().into();
+        assert_matches!(
+            reader.read_length_prefix_and_split_off(),
+            Err(UnexpectedEof(4, 0))
+        );
+        assert_matches!(reader, reader!(0, []));
+    }
+
+    #[test]
+    fn reader_take_all() {
+        let mut reader: Reader<'_> = b"abcd".as_slice().into();
+        assert_eq!(reader.take_all(), [0x61, 0x62, 0x63, 0x64]);
+        assert!(reader.is_empty());
+
+        let mut reader: Reader<'_> = b"abc".as_slice().into();
+        assert_eq!(reader.take_all(), [0x61, 0x62, 0x63]);
+        assert!(reader.is_empty());
+
+        let mut reader: Reader<'_> = b"ab".as_slice().into();
+        assert_eq!(reader.take_all(), [0x61, 0x62]);
+        assert!(reader.is_empty());
+
+        let mut reader: Reader<'_> = b"a".as_slice().into();
+        assert_eq!(reader.take_all(), [0x61]);
+        assert!(reader.is_empty());
+
+        let mut reader: Reader<'_> = b"".as_slice().into();
+        assert_eq!(reader.take_all(), []);
+        assert!(reader.is_empty());
     }
 }
