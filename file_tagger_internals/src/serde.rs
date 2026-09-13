@@ -474,43 +474,46 @@ mod test {
 
     #[test]
     fn bytes_into() {
-        let result: Result<ErrDeser, _> = Buffer::default().bytes_into();
+        let result: Result<ErrDeser, _> = b"".bytes_into();
         assert_matches!(result, Err(BytesIntoError::Deser(ErrDeser)));
 
-        let result: Result<ErrDeser, _> = [0u8].bytes_into();
+        let result: Result<ErrDeser, _> = b"a".bytes_into();
         assert_matches!(result, Err(BytesIntoError::Deser(ErrDeser)));
 
-        let result: Result<ErrDeser, _> = [1u8, 2u8, 3u8, 4u8].bytes_into();
+        let result: Result<ErrDeser, _> = b"abcd".bytes_into();
         assert_matches!(result, Err(BytesIntoError::Deser(ErrDeser)));
 
-        let result: Result<OkDeser, _> = Buffer::default().bytes_into();
+        let result: Result<OkDeser, _> = b"".bytes_into();
         assert_matches!(result, Ok(OkDeser));
 
-        let result: Result<OkDeser, _> = [0u8].bytes_into();
+        let result: Result<OkDeser, _> = b"a".bytes_into();
         assert_matches!(result, Err(BytesIntoError::ExpectedEof(1, 1)));
 
-        let result: Result<OkDeser, _> = [1u8, 2u8, 3u8, 4u8].bytes_into();
+        let result: Result<OkDeser, _> = b"abcd".bytes_into();
         assert_matches!(result, Err(BytesIntoError::ExpectedEof(4, 4)));
 
-        let result: Result<[u8; 0], _> = Buffer::default().bytes_into();
+        let result: Result<[u8; 0], _> = b"".bytes_into();
         assert_matches!(result, Ok([]));
 
-        let result: Result<[u8; 0], _> = [0u8].bytes_into();
+        let result: Result<[u8; 0], _> = b"a".bytes_into();
         assert_matches!(result, Err(BytesIntoError::ExpectedEof(1, 1)));
 
-        let result: Result<[u8; 1], _> = Buffer::default().bytes_into();
+        let result: Result<[u8; 1], _> = b"".bytes_into();
         assert_matches!(result, Err(BytesIntoError::Deser(UnexpectedEof(1, 0))));
 
-        let result: Result<[u8; 1], _> = [0u8].bytes_into();
-        assert_matches!(result, Ok([0]));
+        let result: Result<[u8; 1], _> = b"a".bytes_into();
+        assert_matches!(result, Ok([0x61]));
 
-        let result: Result<[u8; 2], _> = Buffer::default().bytes_into();
+        let result: Result<[u8; 2], _> = b"".bytes_into();
         assert_matches!(result, Err(BytesIntoError::Deser(UnexpectedEof(2, 0))));
 
-        let result: Result<[u8; 2], _> = [0u8].bytes_into();
+        let result: Result<[u8; 2], _> = b"a".bytes_into();
         assert_matches!(result, Err(BytesIntoError::Deser(UnexpectedEof(2, 1))));
 
-        let result: Result<[u8; 2], _> = [0u8, 1u8].bytes_into();
-        assert_matches!(result, Ok([0, 1]));
+        let result: Result<[u8; 2], _> = b"ab".bytes_into();
+        assert_matches!(result, Ok([0x61, 0x62]));
+
+        let result: Result<[u8; 2], _> = b"abc".bytes_into();
+        assert_matches!(result, Err(BytesIntoError::ExpectedEof(1, 3)));
     }
 }
