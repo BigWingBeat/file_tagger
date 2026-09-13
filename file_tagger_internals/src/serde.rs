@@ -314,7 +314,7 @@ impl Writer {
     #[inline]
     pub fn finish(self) -> Result<Buffer, IncorrectBufferSize> {
         if self.written != self.buffer.len() {
-            Err(IncorrectBufferSize(self.written, self.buffer.len()))
+            Err(IncorrectBufferSize(self.buffer.len(), self.written))
         } else {
             Ok(self.buffer.freeze().into())
         }
@@ -795,4 +795,16 @@ mod test {
         assert_eq!(reader.take_all(), []);
         assert!(reader.is_empty());
     }
+
+    #[test]
+    fn writer_write_one() {}
+
+    #[test]
+    fn writer_write() {}
+
+    #[test]
+    fn writer_write_fixed() {}
+
+    #[test]
+    fn writer_write_with_length_prefix() {}
 }
