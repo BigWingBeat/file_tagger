@@ -27,7 +27,7 @@ macro_rules! impl_serde_numerical {
                     // SAFETY: primitive numerical types are POD and as such are always safe to cast to raw bytes
                     // See also: <https://doc.rust-lang.org/stable/src/core/num/uint_macros.rs.html#4016-4017>
                     let bytes = unsafe { std::slice::from_raw_parts(std::ptr::from_ref(self) as *const u8, size_of::<Self>()) };
-                    // The safe alternative would be using the `to_le_bytes()` methods and returning the array as `Bytes::Owned`,
+                    // The safe alternative would be using `to_ne_bytes()` and returning the array as `Bytes::Owned`,
                     // but that makes these impls more annoying to use for Reasons
                     Bytes::Borrowed(bytes)
                 }
@@ -37,7 +37,7 @@ macro_rules! impl_serde_numerical {
                 type Error = UnexpectedEof;
 
                 fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-                    bytes.read_exact().map(Self::from_le_bytes)
+                    bytes.read_exact().map(Self::from_ne_bytes)
                 }
             }
         )*
@@ -45,6 +45,11 @@ macro_rules! impl_serde_numerical {
 }
 
 impl_serde_numerical!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64);
+
+#[cfg(target_endian = "big")]
+compile_error!(
+    "The serde impl for numerical types uses native-endian encoding, meaning databases are not portable between platforms with different endianness."
+);
 
 /* bool */
 
