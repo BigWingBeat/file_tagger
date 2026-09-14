@@ -431,16 +431,20 @@ impl<T: AsBytes, U> Prefixable<T> for (T, U) {
 #[cfg(test)]
 mod test {
     use estr::Estr;
+    use small_sorted_set::SmallSortedSet;
+    use smallvec::{SmallVec, smallvec};
 
     use super::super::{AsBytes, Buffer, BytesInto};
 
     macro_rules! serde_roundtrip {
         ($ty:ty, $value:expr, $bytes:expr) => {{
+            #[allow(clippy::type_complexity, reason = "shut up")]
             let value: $ty = $value;
             let bytes = value.as_bytes();
             assert_eq!(bytes.as_ref(), $bytes);
-            let value: $ty = bytes.bytes_into().unwrap();
-            assert_eq!(value, $value);
+            #[allow(clippy::type_complexity, reason = "shut up")]
+            let roundtrip: $ty = bytes.bytes_into().unwrap();
+            assert_eq!(roundtrip, value);
         }};
     }
 
@@ -639,10 +643,194 @@ mod test {
     }
 
     #[test]
-    fn smallvec() {}
+    fn smallvec_fixed_size_elements() {
+        serde_roundtrip!(SmallVec<[u16; 0]>, SmallVec::new(), []);
+        serde_roundtrip!(SmallVec<[u16; 1]>, SmallVec::from_slice(&[0]), [0, 0]);
+        serde_roundtrip!(
+            SmallVec<[u16; 2]>,
+            SmallVec::from_slice(&[255, 256]),
+            [255, 0, 0, 1]
+        );
+        serde_roundtrip!(
+            SmallVec<[u16; 3]>,
+            SmallVec::from_slice(&[256, 255, 1]),
+            [0, 1, 255, 0, 1, 0]
+        );
+    }
 
     #[test]
-    fn smallsortedset() {}
+    fn smallvec_variable_size_elements() {
+        serde_roundtrip!(SmallVec<[String; 0]>, SmallVec::new(), []);
+        serde_roundtrip!(
+            SmallVec<[String; 1]>,
+            smallvec![String::new()],
+            [0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 1]>,
+            smallvec!["\0".to_owned()],
+            [1, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 1]>,
+            smallvec!["a".to_owned()],
+            [1, 0, 0, 0, 97]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 1]>,
+            smallvec!["abcd".to_owned()],
+            [4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 2]>,
+            smallvec![String::new(), String::new()],
+            [0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 2]>,
+            smallvec![String::new(), "a".to_owned()],
+            [0, 0, 0, 0, 1, 0, 0, 0, 97]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 2]>,
+            smallvec!["a".to_owned(), String::new()],
+            [1, 0, 0, 0, 97, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 2]>,
+            smallvec!["a".to_owned(), "b".to_owned()],
+            [1, 0, 0, 0, 97, 1, 0, 0, 0, 98]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 2]>,
+            smallvec!["abcd".to_owned(), "dcb".to_owned()],
+            [4, 0, 0, 0, 97, 98, 99, 100, 3, 0, 0, 0, 100, 99, 98]
+        );
+        serde_roundtrip!(
+            SmallVec<[String; 3]>,
+            smallvec!["a".to_owned(), String::new(), "b".to_owned()],
+            [1, 0, 0, 0, 97, 0, 0, 0, 0, 1, 0, 0, 0, 98]
+        );
+        serde_roundtrip!(
+            SmallVec<[SmallVec<[u16; 3]>; 1]>,
+            smallvec![smallvec![7, 8, 9]],
+            [6, 0, 0, 0, 7, 0, 8, 0, 9, 0]
+        );
+        serde_roundtrip!(
+            SmallVec<[SmallVec<[String; 2]>; 1]>,
+            smallvec![smallvec!["".to_owned(), "abcd".to_owned()]],
+            [12, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(
+            SmallVec<[SmallVec<[SmallVec<[SmallVec<[u16; 1]>; 2]>; 1]>; 1]>,
+            smallvec![smallvec![
+                smallvec![smallvec![111], smallvec![222]],
+                smallvec![smallvec![256]]
+            ]],
+            [
+                26, 0, 0, 0, 12, 0, 0, 0, 2, 0, 0, 0, 111, 0, 2, 0, 0, 0, 222, 0, 6, 0, 0, 0, 2, 0,
+                0, 0, 0, 1
+            ]
+        );
+    }
+
+    #[test]
+    fn smallsortedset_fixed_size_elements() {
+        serde_roundtrip!(SmallSortedSet<u16, 0>, SmallSortedSet::new(), []);
+        serde_roundtrip!(SmallSortedSet<u16, 1>, SmallSortedSet::from_unsorted_slice(&[0]), [0, 0]);
+        serde_roundtrip!(
+            SmallSortedSet<u16, 2>,
+            SmallSortedSet::from_unsorted_slice(&[255, 256]),
+            [255, 0, 0, 1]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<u16, 3>,
+            SmallSortedSet::from_unsorted_slice(&[256, 255, 1]),
+            [1, 0, 255, 0, 0, 1]
+        );
+    }
+
+    #[test]
+    fn smallsortedset_variable_size_elements() {
+        serde_roundtrip!(SmallSortedSet<String, 0>, SmallSortedSet::new(), []);
+        serde_roundtrip!(
+            SmallSortedSet<String, 1>,
+            SmallSortedSet::from_unsorted_slice(&[String::new()]),
+            [0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 1>,
+            SmallSortedSet::from_unsorted_slice(&["\0".to_owned()]),
+            [1, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 1>,
+            SmallSortedSet::from_unsorted_slice(&["a".to_owned()]),
+            [1, 0, 0, 0, 97]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 1>,
+            SmallSortedSet::from_unsorted_slice(&["abcd".to_owned()]),
+            [4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 2>,
+            SmallSortedSet::from_unsorted_slice(&[String::new(), String::new()]),
+            [0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 2>,
+            SmallSortedSet::from_unsorted_slice(&[String::new(), "a".to_owned()]),
+            [0, 0, 0, 0, 1, 0, 0, 0, 97]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 2>,
+            SmallSortedSet::from_unsorted_slice(&["a".to_owned(), String::new()]),
+            [0, 0, 0, 0, 1, 0, 0, 0, 97]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String,2>,
+            SmallSortedSet::from_unsorted_slice(&["a".to_owned(), "b".to_owned()]),
+            [1, 0, 0, 0, 97, 1, 0, 0, 0, 98]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 2>,
+            SmallSortedSet::from_unsorted_slice(&["abcd".to_owned(), "dcb".to_owned()]),
+            [4, 0, 0, 0, 97, 98, 99, 100, 3, 0, 0, 0, 100, 99, 98]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<String, 3>,
+            SmallSortedSet::from_unsorted_slice(&["a".to_owned(), String::new(), "b".to_owned()]),
+            [0, 0, 0, 0, 1, 0, 0, 0, 97, 1, 0, 0, 0, 98]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<SmallSortedSet<u16, 3>, 1>,
+            SmallSortedSet::from_unsorted_slice(&[SmallSortedSet::from_unsorted_slice(&[7, 8, 9])]),
+            [6, 0, 0, 0, 7, 0, 8, 0, 9, 0]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<SmallSortedSet<String, 2>, 1>,
+            SmallSortedSet::from_unsorted_slice(&[SmallSortedSet::from_unsorted_slice(&[
+                "".to_owned(),
+                "abcd".to_owned()
+            ])]),
+            [12, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(
+            SmallSortedSet<SmallSortedSet<SmallSortedSet<SmallSortedSet<u16, 1>, 2>, 1>, 1>,
+            SmallSortedSet::from_unsorted_slice(&[SmallSortedSet::from_unsorted_slice(&[
+                SmallSortedSet::from_unsorted_slice(&[
+                    SmallSortedSet::from_unsorted_slice(&[111]),
+                    SmallSortedSet::from_unsorted_slice(&[222])
+                ]),
+                SmallSortedSet::from_unsorted_slice(&[SmallSortedSet::from_unsorted_slice(&[256])])
+            ])]),
+            [
+                26, 0, 0, 0, 12, 0, 0, 0, 2, 0, 0, 0, 111, 0, 2, 0, 0, 0, 222, 0, 6, 0, 0, 0, 2, 0,
+                0, 0, 0, 1
+            ]
+        );
+    }
 
     #[test]
     fn tuples() {}
