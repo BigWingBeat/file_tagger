@@ -425,7 +425,9 @@ impl<T: AsBytes, U> Prefixable<T> for (T, U) {
 
 #[cfg(test)]
 mod test {
-    use super::super::{AsBytes, BytesInto};
+    use estr::Estr;
+
+    use super::super::{AsBytes, Buffer, BytesInto};
 
     macro_rules! serde_roundtrip {
         ($ty:ty, $value:expr, $bytes:expr) => {{
@@ -576,16 +578,60 @@ mod test {
     }
 
     #[test]
-    fn array() {}
+    fn array() {
+        serde_roundtrip!([u8; 0], [], []);
+
+        serde_roundtrip!([u8; 1], [0], [0]);
+        serde_roundtrip!([u8; 1], [1], [1]);
+        serde_roundtrip!([u8; 1], [255], [255]);
+
+        serde_roundtrip!([u8; 2], [0, 0], [0, 0]);
+        serde_roundtrip!([u8; 2], [1, 0], [1, 0]);
+        serde_roundtrip!([u8; 2], [0, 1], [0, 1]);
+
+        serde_roundtrip!([u8; 3], [0, 0, 0], [0, 0, 0]);
+        serde_roundtrip!([u8; 3], [255, 0, 0], [255, 0, 0]);
+        serde_roundtrip!([u8; 3], [0, 255, 0], [0, 255, 0]);
+        serde_roundtrip!([u8; 3], [0, 0, 255], [0, 0, 255]);
+    }
 
     #[test]
-    fn buffer() {}
+    fn buffer() {
+        serde_roundtrip!(Buffer, Buffer::new(&[]), []);
+
+        serde_roundtrip!(Buffer, Buffer::new(&[0]), [0]);
+        serde_roundtrip!(Buffer, Buffer::new(&[1]), [1]);
+        serde_roundtrip!(Buffer, Buffer::new(&[255]), [255]);
+
+        serde_roundtrip!(Buffer, Buffer::new(&[0, 0]), [0, 0]);
+        serde_roundtrip!(Buffer, Buffer::new(&[1, 0]), [1, 0]);
+        serde_roundtrip!(Buffer, Buffer::new(&[0, 1]), [0, 1]);
+
+        serde_roundtrip!(Buffer, Buffer::new(&[0, 0, 0]), [0, 0, 0]);
+        serde_roundtrip!(Buffer, Buffer::new(&[255, 0, 0]), [255, 0, 0]);
+        serde_roundtrip!(Buffer, Buffer::new(&[0, 255, 0]), [0, 255, 0]);
+        serde_roundtrip!(Buffer, Buffer::new(&[0, 0, 255]), [0, 0, 255]);
+    }
 
     #[test]
-    fn string() {}
+    fn string() {
+        serde_roundtrip!(String, String::new(), []);
+        serde_roundtrip!(String, "\0".to_owned(), [0]);
+        serde_roundtrip!(String, "a".to_owned(), b"a");
+        serde_roundtrip!(String, "abcd".to_owned(), b"abcd");
+        serde_roundtrip!(String, "💖".to_owned(), [240, 159, 146, 150]);
+        serde_roundtrip!(String, "hello".to_owned(), [104, 101, 108, 108, 111]);
+    }
 
     #[test]
-    fn estr() {}
+    fn estr() {
+        serde_roundtrip!(Estr, Estr::from(""), []);
+        serde_roundtrip!(Estr, Estr::from("\0"), [0]);
+        serde_roundtrip!(Estr, Estr::from("a"), b"a");
+        serde_roundtrip!(Estr, Estr::from("abcd"), b"abcd");
+        serde_roundtrip!(Estr, Estr::from("💖"), [240, 159, 146, 150]);
+        serde_roundtrip!(Estr, Estr::from("hello"), [104, 101, 108, 108, 111]);
+    }
 
     #[test]
     fn smallvec() {}
