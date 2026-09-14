@@ -833,5 +833,53 @@ mod test {
     }
 
     #[test]
-    fn tuples() {}
+    fn tuples() {
+        serde_roundtrip!((u16, u16), (0, 0), [0, 0, 0, 0]);
+        serde_roundtrip!((u16, u16), (1, 0), [1, 0, 0, 0]);
+        serde_roundtrip!((u16, u16), (256, 0), [0, 1, 0, 0]);
+        serde_roundtrip!((u16, u16), (0, 1), [0, 0, 1, 0]);
+        serde_roundtrip!((u16, u16), (0, 256), [0, 0, 0, 1]);
+        serde_roundtrip!((u16, u16), (1, 1), [1, 0, 1, 0]);
+        serde_roundtrip!((u16, u16), (256, 256), [0, 1, 0, 1]);
+
+        serde_roundtrip!(
+            (String, String),
+            (String::new(), String::new()),
+            [0, 0, 0, 0]
+        );
+
+        serde_roundtrip!(
+            (String, String),
+            (String::new(), "abcd".to_owned()),
+            [0, 0, 0, 0, 97, 98, 99, 100]
+        );
+
+        serde_roundtrip!(
+            (String, String),
+            ("abcd".to_owned(), String::new()),
+            [4, 0, 0, 0, 97, 98, 99, 100]
+        );
+
+        serde_roundtrip!(
+            (String, String),
+            ("abcd".to_owned(), "abcd".to_owned()),
+            [4, 0, 0, 0, 97, 98, 99, 100, 97, 98, 99, 100]
+        );
+
+        serde_roundtrip!(
+            (u16, String),
+            (1, "abcd".to_owned()),
+            [1, 0, 97, 98, 99, 100]
+        );
+
+        serde_roundtrip!((u16, String), (1, String::new()), [1, 0]);
+
+        serde_roundtrip!(
+            (String, u16),
+            ("abcd".to_owned(), 1),
+            [4, 0, 0, 0, 97, 98, 99, 100, 1, 0]
+        );
+
+        serde_roundtrip!((String, u16), (String::new(), 1), [0, 0, 0, 0, 1, 0]);
+    }
 }
