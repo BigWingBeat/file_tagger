@@ -739,7 +739,11 @@ impl TagData {
 #[cfg(test)]
 mod test {
     use super::{AnyRange, Entry, Tag, TagData, TagDataType};
-    use crate::{Buffer, serde::SmallVec, test::serde_roundtrip};
+    use crate::{
+        Buffer,
+        serde::{AsBytes, SmallVec},
+        test::serde_roundtrip,
+    };
 
     #[test]
     fn entry() {
@@ -871,5 +875,58 @@ mod test {
 
         assert_eq!(7, TagDataType::Buffer.discriminant());
         assert_eq!(7, TagData::Buffer(Buffer::new(&[])).discriminant());
+    }
+
+    #[test]
+    fn tagdata_deser() {
+        let data = TagData::String("abcd".to_owned());
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [97, 98, 99, 100]);
+        let roundtrip = TagData::deserialize(bytes.as_ref().into(), &TagDataType::String).unwrap();
+        assert_eq!(roundtrip, data);
+
+        let data = TagData::Enum("abcd".into());
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [97, 98, 99, 100]);
+        let roundtrip = TagData::deserialize(
+            bytes.as_ref().into(),
+            &TagDataType::Enum(SmallVec::from_slice(&["abcd".into()])),
+        )
+        .unwrap();
+        assert_eq!(roundtrip, data);
+
+        let data = TagData::Bool(true);
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [1]);
+        let roundtrip = TagData::deserialize(bytes.as_ref().into(), &TagDataType::Bool).unwrap();
+        assert_eq!(roundtrip, data);
+
+        let data = TagData::Unsigned(0);
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [0, 0, 0, 0, 0, 0, 0, 0]);
+        let roundtrip =
+            TagData::deserialize(bytes.as_ref().into(), &TagDataType::Unsigned((..).into()))
+                .unwrap();
+        assert_eq!(roundtrip, data);
+
+        let data = TagData::Signed(0);
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [0, 0, 0, 0, 0, 0, 0, 0]);
+        let roundtrip =
+            TagData::deserialize(bytes.as_ref().into(), &TagDataType::Signed((..).into())).unwrap();
+        assert_eq!(roundtrip, data);
+
+        let data = TagData::Float(0.0);
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [0, 0, 0, 0, 0, 0, 0, 0]);
+        let roundtrip =
+            TagData::deserialize(bytes.as_ref().into(), &TagDataType::Float((..).into())).unwrap();
+        assert_eq!(roundtrip, data);
+
+        let data = TagData::Buffer(Buffer::new(&[0, 1]));
+        let bytes = data.as_bytes();
+        assert_eq!(bytes.as_ref(), [0, 1]);
+        let roundtrip = TagData::deserialize(bytes.as_ref().into(), &TagDataType::Buffer).unwrap();
+        assert_eq!(roundtrip, data);
     }
 }
