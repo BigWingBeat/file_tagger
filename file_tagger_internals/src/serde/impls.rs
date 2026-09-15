@@ -434,19 +434,8 @@ mod test {
     use small_sorted_set::SmallSortedSet;
     use smallvec::{SmallVec, smallvec};
 
-    use super::super::{AsBytes, Buffer, BytesInto};
-
-    macro_rules! serde_roundtrip {
-        ($ty:ty, $value:expr, $bytes:expr) => {{
-            #[allow(clippy::type_complexity, reason = "shut up")]
-            let value: $ty = $value;
-            let bytes = value.as_bytes();
-            assert_eq!(bytes.as_ref(), $bytes);
-            #[allow(clippy::type_complexity, reason = "shut up")]
-            let roundtrip: $ty = bytes.bytes_into().unwrap();
-            assert_eq!(roundtrip, value);
-        }};
-    }
+    use super::super::Buffer;
+    use crate::test::serde_roundtrip;
 
     #[test]
     fn primitives() {

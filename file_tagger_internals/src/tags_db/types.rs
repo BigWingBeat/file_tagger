@@ -8,7 +8,7 @@ use std::{
 
 use byteview::ByteView;
 use estr::Estr;
-use scru64::Scru64Id;
+use scru64::{Scru64Id, id::ParseError};
 use thiserror::Error;
 
 use crate::{
@@ -30,6 +30,14 @@ pub struct Entry(pub(super) Scru64Id);
 impl Display for Entry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl FromStr for Entry {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        FromStr::from_str(s).map(Self)
     }
 }
 
@@ -663,4 +671,53 @@ impl TagData {
             TagDataType::Buffer => Ok(Self::Buffer(buf)),
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{AnyRange, Entry, Tag, TagData, TagDataType};
+    use crate::test::serde_roundtrip;
+
+    #[test]
+    fn entry() {
+        serde_roundtrip!(
+            Entry,
+            "000000000000".parse().unwrap(),
+            [0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            Entry,
+            "000000000001".parse().unwrap(),
+            [0, 0, 0, 0, 0, 0, 0, 1]
+        );
+        serde_roundtrip!(
+            Entry,
+            "0jpia9pm8jr4".parse().unwrap(),
+            [1, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            Entry,
+            "zzzzzzzzzzzz".parse().unwrap(),
+            [65, 194, 28, 184, 224, 255, 255, 255]
+        );
+    }
+
+    #[test]
+    fn tag() {
+        serde_roundtrip!(Tag, Tag::from(""), []);
+        serde_roundtrip!(Tag, Tag::from("\0"), [0]);
+        serde_roundtrip!(Tag, Tag::from("a"), b"a");
+        serde_roundtrip!(Tag, Tag::from("abcd"), b"abcd");
+        serde_roundtrip!(Tag, Tag::from("💖"), [240, 159, 146, 150]);
+        serde_roundtrip!(Tag, Tag::from("hello"), [104, 101, 108, 108, 111]);
+    }
+
+    #[test]
+    fn anyrange() {}
+
+    #[test]
+    fn tagdatatype() {}
+
+    #[test]
+    fn tagdata() {}
 }
