@@ -186,7 +186,7 @@ impl Display for Tag {
 ///    }
 /// }
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnyRange<T>(pub Option<T>, pub Bound<T>);
 
 #[derive(Debug, Error)]
@@ -228,6 +228,67 @@ impl<T: Display> Display for AnyRange<T> {
             Self(None, Bound::Excluded(end)) => write!(f, "..{end}"),
             Self(None, Bound::Included(end)) => write!(f, "..={end}"),
         }
+    }
+}
+
+impl<T> From<std::ops::Range<T>> for AnyRange<T> {
+    fn from(range: std::ops::Range<T>) -> Self {
+        Self(Some(range.start), Bound::Excluded(range.end))
+    }
+}
+
+impl<T> From<std::range::Range<T>> for AnyRange<T> {
+    fn from(range: std::range::Range<T>) -> Self {
+        Self(Some(range.start), Bound::Excluded(range.end))
+    }
+}
+
+impl<T> From<std::ops::RangeFrom<T>> for AnyRange<T> {
+    fn from(range: std::ops::RangeFrom<T>) -> Self {
+        Self(Some(range.start), Bound::Unbounded)
+    }
+}
+
+impl<T> From<std::range::RangeFrom<T>> for AnyRange<T> {
+    fn from(range: std::range::RangeFrom<T>) -> Self {
+        Self(Some(range.start), Bound::Unbounded)
+    }
+}
+
+impl<T> From<std::ops::RangeFull> for AnyRange<T> {
+    fn from(_: std::ops::RangeFull) -> Self {
+        Self(None, Bound::Unbounded)
+    }
+}
+
+impl<T> From<std::ops::RangeInclusive<T>> for AnyRange<T> {
+    fn from(range: std::ops::RangeInclusive<T>) -> Self {
+        let (start, end) = range.into_inner();
+        Self(Some(start), Bound::Included(end))
+    }
+}
+
+impl<T> From<std::range::RangeInclusive<T>> for AnyRange<T> {
+    fn from(range: std::range::RangeInclusive<T>) -> Self {
+        Self(Some(range.start), Bound::Included(range.last))
+    }
+}
+
+impl<T> From<std::ops::RangeTo<T>> for AnyRange<T> {
+    fn from(range: std::ops::RangeTo<T>) -> Self {
+        Self(None, Bound::Excluded(range.end))
+    }
+}
+
+impl<T> From<std::ops::RangeToInclusive<T>> for AnyRange<T> {
+    fn from(range: std::ops::RangeToInclusive<T>) -> Self {
+        Self(None, Bound::Included(range.end))
+    }
+}
+
+impl<T> From<std::range::RangeToInclusive<T>> for AnyRange<T> {
+    fn from(range: std::range::RangeToInclusive<T>) -> Self {
+        Self(None, Bound::Included(range.last))
     }
 }
 
@@ -371,6 +432,7 @@ impl<T: FromBytes> FromBytes for AnyRange<T> {
 /// The kind of data that a tag has
 ///
 /// The discriminants (including their order!) should be kept in sync with `TagData`
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TagDataType {
     /// The tag has no associated data
@@ -514,6 +576,7 @@ impl FromBytes for TagDataType {
 /// A strongly-typed instance of tag data containing the deserialized value
 ///
 /// The discriminants (including their order!) should be kept in sync with `TagDataType`
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum TagData {
     /// The tag has no associated data.
@@ -676,7 +739,7 @@ impl TagData {
 #[cfg(test)]
 mod test {
     use super::{AnyRange, Entry, Tag, TagData, TagDataType};
-    use crate::test::serde_roundtrip;
+    use crate::{Buffer, serde::SmallVec, test::serde_roundtrip};
 
     #[test]
     fn entry() {
@@ -713,11 +776,100 @@ mod test {
     }
 
     #[test]
-    fn anyrange() {}
+    fn anyrange() {
+        serde_roundtrip!(AnyRange<u8>, (..).into(), [0, 2]);
+        serde_roundtrip!(AnyRange<u8>, (..12).into(), [0, 1, 12]);
+        serde_roundtrip!(AnyRange<u8>, (..=24).into(), [0, 0, 24]);
+        serde_roundtrip!(AnyRange<u8>, (4..).into(), [1, 4, 2]);
+        serde_roundtrip!(AnyRange<u8>, (5..12).into(), [1, 5, 1, 12]);
+        serde_roundtrip!(AnyRange<u8>, (6..=24).into(), [1, 6, 0, 24]);
+
+        serde_roundtrip!(AnyRange<String>, (..).into(), [0, 2]);
+        serde_roundtrip!(
+            AnyRange<String>,
+            (.."abcd".to_owned()).into(),
+            [0, 1, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(AnyRange<String>, (..=String::new()).into(), [0, 0]);
+        serde_roundtrip!(
+            AnyRange<String>,
+            ("abcd".to_owned()..).into(),
+            [1, 4, 0, 0, 0, 97, 98, 99, 100, 2]
+        );
+        serde_roundtrip!(
+            AnyRange<String>,
+            (String::new().."abcd".to_owned()).into(),
+            [1, 0, 0, 0, 0, 1, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(
+            AnyRange<String>,
+            (String::new()..=String::new()).into(),
+            [1, 0, 0, 0, 0, 0]
+        );
+    }
 
     #[test]
-    fn tagdatatype() {}
+    fn tagdatatype() {
+        serde_roundtrip!(TagDataType, TagDataType::None, [0]);
+        serde_roundtrip!(TagDataType, TagDataType::String, [1]);
+        serde_roundtrip!(TagDataType, TagDataType::Enum(SmallVec::new()), [2]);
+        serde_roundtrip!(
+            TagDataType,
+            TagDataType::Enum(SmallVec::from_slice(&["".into()])),
+            [2, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(
+            TagDataType,
+            TagDataType::Enum(SmallVec::from_slice(&["abcd".into()])),
+            [2, 4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        serde_roundtrip!(TagDataType, TagDataType::Bool, [3]);
+        serde_roundtrip!(TagDataType, TagDataType::Unsigned((..).into()), [4, 0, 2]);
+        serde_roundtrip!(
+            TagDataType,
+            TagDataType::Unsigned((5..12).into()),
+            [4, 1, 5, 0, 0, 0, 0, 0, 0, 0, 1, 12, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(TagDataType, TagDataType::Signed((..).into()), [5, 0, 2]);
+        serde_roundtrip!(
+            TagDataType,
+            TagDataType::Signed((5..12).into()),
+            [5, 1, 5, 0, 0, 0, 0, 0, 0, 0, 1, 12, 0, 0, 0, 0, 0, 0, 0]
+        );
+        serde_roundtrip!(TagDataType, TagDataType::Float((..).into()), [6, 0, 2]);
+        serde_roundtrip!(
+            TagDataType,
+            TagDataType::Float((-1.0..1.0).into()),
+            [
+                6, 1, 0, 0, 0, 0, 0, 0, 240, 191, 1, 0, 0, 0, 0, 0, 0, 240, 63
+            ]
+        );
+        serde_roundtrip!(TagDataType, TagDataType::Buffer, [7]);
+    }
 
     #[test]
-    fn tagdata() {}
+    fn tagdata_discriminants_match() {
+        assert_eq!(0, TagDataType::None.discriminant());
+
+        assert_eq!(1, TagDataType::String.discriminant());
+        assert_eq!(1, TagData::String(String::new()).discriminant());
+
+        assert_eq!(2, TagDataType::Enum(SmallVec::new()).discriminant());
+        assert_eq!(2, TagData::Enum("".into()).discriminant());
+
+        assert_eq!(3, TagDataType::Bool.discriminant());
+        assert_eq!(3, TagData::Bool(false).discriminant());
+
+        assert_eq!(4, TagDataType::Unsigned((..).into()).discriminant());
+        assert_eq!(4, TagData::Unsigned(0).discriminant());
+
+        assert_eq!(5, TagDataType::Signed((..).into()).discriminant());
+        assert_eq!(5, TagData::Signed(0).discriminant());
+
+        assert_eq!(6, TagDataType::Float((..).into()).discriminant());
+        assert_eq!(6, TagData::Float(0.0).discriminant());
+
+        assert_eq!(7, TagDataType::Buffer.discriminant());
+        assert_eq!(7, TagData::Buffer(Buffer::new(&[])).discriminant());
+    }
 }
