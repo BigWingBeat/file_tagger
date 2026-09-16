@@ -61,8 +61,7 @@ impl AsBytes for bool {
     type Bytes = Buffer;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
-        // SAFETY: `bool` is really just a `u8` that is always either `0` or `1`,
-        // so this is always safe for the same reason that this is safe for the integer types
+        // SAFETY: `bool` is POD and as such is always safe to cast to raw bytes
         let bytes = unsafe {
             std::slice::from_raw_parts(std::ptr::from_ref(self) as *const u8, size_of::<Self>())
         };
