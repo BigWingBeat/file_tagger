@@ -331,7 +331,7 @@ impl<T: SizeHint, U: SizeHint> SizeHint for (T, U) {
     // - `T::SIZE_HINT.zip(U::SIZE_HINT).map(|(t, u)| t + u)`
     // - `T::SIZE_HINT.zip_with(U::SIZE_HINT, usize::strict_add)`
     const SIZE_HINT: Option<usize> = match (T::SIZE_HINT, U::SIZE_HINT) {
-        (Some(t), Some(u)) => Some(t + u),
+        (Some(t), Some(u)) => Some(t.strict_add(u)),
         _ => None,
     };
 }
