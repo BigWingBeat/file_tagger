@@ -148,8 +148,9 @@ trait ConstTypedKey {
     type Value;
 }
 
-macro_rules! impl_const_typed_key {
-    ($ty:ty, $value:ty) => {
+macro_rules! const_typed_key {
+    ($ty:ident, $value:ty) => {
+        struct $ty;
         impl ConstTypedKey for $ty {
             const KEY: ConstKey = ConstKey(stringify!($ty).as_bytes());
             type Value = $value;
@@ -187,6 +188,4 @@ trait DatabaseExt: crate::database::DbApi {
 
 impl<T: crate::database::DbApi> DatabaseExt for T {}
 
-struct RecentFolders;
-
-impl_const_typed_key!(RecentFolders, SmallVec<String>);
+const_typed_key!(RecentFolders, SmallVec<String>);
