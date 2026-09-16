@@ -738,6 +738,8 @@ impl TagData {
 
 #[cfg(test)]
 mod test {
+    use std::assert_matches;
+
     use super::{AnyRange, Entry, Tag, TagData, TagDataType};
     use crate::{
         Buffer,
@@ -849,6 +851,184 @@ mod test {
             ]
         );
         serde_roundtrip!(TagDataType, TagDataType::Buffer, [7]);
+    }
+
+    #[test]
+    fn tagdatatype_verify_variant() {
+        let metadata = [
+            TagDataType::String,
+            TagDataType::Enum(SmallVec::from_slice(&["".into()])),
+            TagDataType::Bool,
+            TagDataType::Unsigned((..).into()),
+            TagDataType::Signed((..).into()),
+            TagDataType::Float((..).into()),
+            TagDataType::Buffer,
+        ];
+
+        let data = [
+            TagData::String(String::new()),
+            TagData::Enum("".into()),
+            TagData::Bool(false),
+            TagData::Unsigned(0),
+            TagData::Signed(0),
+            TagData::Float(0.0),
+            TagData::Buffer(Buffer::new(&[])),
+        ];
+
+        for (i, metadata) in metadata.iter().enumerate() {
+            for (j, data) in data.iter().enumerate() {
+                let result = metadata.verify_data(data);
+                if i == j {
+                    result.unwrap();
+                } else {
+                    result.unwrap_err();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tagdatatype_verify_ranges() {
+        macro_rules! verify_all {
+            ([$($data:expr),* $(,)*], [$($metadata:expr => $result:pat),* $(,)*] $(,)*) => {{
+                let data: [TagData; _] = [$($data),*];
+                $(
+                    assert_matches!(
+                        data.iter()
+                            .map(|data| $metadata.verify_data(data))
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                        $result
+                    );
+                )*
+            }};
+        }
+
+        verify_all!(
+            [
+                TagData::Enum("".into()),
+                TagData::Enum("a".into()),
+                TagData::Enum("\0".into()),
+                TagData::Enum("abcd".into()),
+            ],
+            [
+                TagDataType::Enum(SmallVec::new())
+                => [Err(_), Err(_), Err(_), Err(_)],
+                TagDataType::Enum(SmallVec::from_slice(&["".into()]))
+                => [Ok(_), Err(_), Err(_), Err(_)],
+                TagDataType::Enum(SmallVec::from_slice(&["a".into()]))
+                => [Err(_), Ok(_), Err(_), Err(_)],
+                TagDataType::Enum(SmallVec::from_slice(&["\0".into()]))
+                => [Err(_), Err(_), Ok(_), Err(_)],
+                TagDataType::Enum(SmallVec::from_slice(&["abcd".into()]))
+                => [Err(_), Err(_), Err(_), Ok(_)],
+                TagDataType::Enum(SmallVec::from_slice(&[
+                    "".into(),
+                    "a".into(),
+                    "\0".into(),
+                    "abcd".into(),
+                ]))
+                => [Ok(_), Ok(_), Ok(_), Ok(_)],
+                TagDataType::Enum(SmallVec::from_slice(&["1234".into(),]))
+                => [Err(_), Err(_), Err(_), Err(_)],
+            ]
+        );
+
+        verify_all!(
+            [
+                TagData::Unsigned(0),
+                TagData::Unsigned(1),
+                TagData::Unsigned(100),
+                TagData::Unsigned(u64::MAX),
+            ],
+            [
+                    TagDataType::Unsigned((0..0).into())
+                    => [Err(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Unsigned((0..1).into())
+                    => [Ok(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Unsigned((..1).into())
+                    => [Ok(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Unsigned((0..=1).into())
+                    => [Ok(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Unsigned((..=1).into())
+                    => [Ok(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Unsigned((0..).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_)],
+                    TagDataType::Unsigned((1..).into())
+                    => [Err(_), Ok(_), Ok(_), Ok(_)],
+                    TagDataType::Unsigned((2..).into())
+                    => [Err(_), Err(_), Ok(_), Ok(_)],
+                    TagDataType::Unsigned((..).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_)],
+            ],
+        );
+
+        verify_all!(
+            [
+                TagData::Signed(i64::MIN),
+                TagData::Signed(-1),
+                TagData::Signed(0),
+                TagData::Signed(1),
+                TagData::Signed(i64::MAX),
+            ],
+            [
+                    TagDataType::Signed((0..0).into())
+                    => [Err(_), Err(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Signed((0..1).into())
+                    => [Err(_), Err(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Signed((-1..1).into())
+                    => [Err(_), Ok(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Signed((..1).into())
+                    => [Ok(_), Ok(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Signed((0..=1).into())
+                    => [Err(_), Err(_), Ok(_), Ok(_), Err(_)],
+                    TagDataType::Signed((..=1).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_), Err(_)],
+                    TagDataType::Signed((0..).into())
+                    => [Err(_), Err(_), Ok(_), Ok(_), Ok(_)],
+                    TagDataType::Signed((1..).into())
+                    => [Err(_), Err(_), Err(_), Ok(_), Ok(_)],
+                    TagDataType::Signed((2..).into())
+                    => [Err(_), Err(_), Err(_), Err(_), Ok(_)],
+                    TagDataType::Signed((..).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_), Ok(_)],
+            ],
+        );
+
+        verify_all!(
+            [
+                TagData::Float(f64::NEG_INFINITY),
+                TagData::Float(f64::MIN),
+                TagData::Float(-1.0),
+                TagData::Float(-0.0),
+                TagData::Float(0.0),
+                TagData::Float(1.0),
+                TagData::Float(f64::MAX),
+                TagData::Float(f64::INFINITY),
+            ],
+            [
+                    TagDataType::Float((0.0..0.0).into())
+                    => [Err(_), Err(_), Err(_), Err(_), Err(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Float((0.0..1.0).into())
+                    => [Err(_), Err(_), Err(_), Ok(_), Ok(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Float((-1.0..1.0).into())
+                    => [Err(_), Err(_), Ok(_), Ok(_), Ok(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Float((..1.0).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_), Ok(_), Err(_), Err(_), Err(_)],
+                    TagDataType::Float((0.0..=1.0).into())
+                    => [Err(_), Err(_), Err(_), Ok(_), Ok(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Float((..=1.0).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_), Ok(_), Ok(_), Err(_), Err(_)],
+                    TagDataType::Float((-0.0..).into())
+                    => [Err(_), Err(_), Err(_), Ok(_), Ok(_), Ok(_), Ok(_), Ok(_)],
+                    TagDataType::Float((0.0..).into())
+                    => [Err(_), Err(_), Err(_), Ok(_), Ok(_), Ok(_), Ok(_), Ok(_)],
+                    TagDataType::Float((2.0..).into())
+                    => [Err(_), Err(_), Err(_), Err(_), Err(_), Err(_), Ok(_), Ok(_)],
+                    TagDataType::Float((..).into())
+                    => [Ok(_), Ok(_), Ok(_), Ok(_), Ok(_), Ok(_), Ok(_), Ok(_)],
+            ],
+        );
     }
 
     #[test]
