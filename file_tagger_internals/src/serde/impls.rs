@@ -433,7 +433,7 @@ mod test {
     use small_sorted_set::SmallSortedSet;
     use smallvec::{SmallVec, smallvec};
 
-    use super::super::Buffer;
+    use super::super::{Buffer, Prefixable};
     use crate::test::serde_roundtrip;
 
     #[test]
@@ -869,5 +869,30 @@ mod test {
         );
 
         serde_roundtrip!((String, u16), (String::new(), 1), [0, 0, 0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn tuple_prefixable() {
+        assert_eq!(<(u8, u8)>::prefix(&0), [0]);
+        assert_eq!(<(u8, u8)>::prefix(&12), [12]);
+        assert_eq!(<(u8, u16)>::prefix(&1), [1]);
+        assert_eq!(<(u16, u8)>::prefix(&1), [1, 0]);
+        assert_eq!(<(u16, u16)>::prefix(&1), [1, 0]);
+        assert_eq!(<(u8, String)>::prefix(&1), [1]);
+        assert_eq!(<(u16, String)>::prefix(&1), [1, 0]);
+        assert_eq!(
+            <(String, u8)>::prefix(&"abcd".to_owned()),
+            [4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        assert_eq!(
+            <(String, u16)>::prefix(&"abcd".to_owned()),
+            [4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        assert_eq!(
+            <(String, String)>::prefix(&"abcd".to_owned()),
+            [4, 0, 0, 0, 97, 98, 99, 100]
+        );
+        assert_eq!(<(String, u8)>::prefix(&"".to_owned()), [0, 0, 0, 0]);
+        assert_eq!(<(String, u8)>::prefix(&"\0".to_owned()), [1, 0, 0, 0, 0]);
     }
 }
