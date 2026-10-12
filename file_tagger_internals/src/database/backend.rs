@@ -1,26 +1,8 @@
 //! Defines the interface which is implemented by the backend modules
 
-cfg_select! {
-    all(feature = "backend_fjall", feature = "backend_sled") => {
-        compile_error!("You cannot have both database backend features active at the same time. You must choose either \"backend_fjall\" or \"backend_sled\".");
-    }
-    feature = "backend_fjall" => {
-        mod fjall;
-        use fjall as backend;
-    }
-    feature = "backend_sled" => {
-        compile_error!("The \"backend_sled\" feature is currently unsupported due to critical API limitations in Sled. This may change in the future, should Sled receive sufficient improvements in new versions.");
-        mod sled;
-        use sled as backend;
-    }
-    _ => {
-        compile_error!("Neither database backend feature is active. You must choose either \"backend_fjall\" or \"backend_sled\".");
-    }
-}
+mod sqlite;
 
 use std::path::Path;
-
-pub use backend::{Buffer, Builder, Conflict, Database, Error, Iter, Result, Table, Transaction};
 
 pub trait BuilderImpl {
     type Database;

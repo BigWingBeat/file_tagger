@@ -13,8 +13,3 @@ bevy.workspace = true
 miette.workspace = true
 usvg.workspace = true
 # bevy-inspector-egui = { version = "0.37" }
-
-[features]
-default = ["backend_fjall"]
-backend_fjall = ["file_tagger_internals/backend_fjall"]
-backend_sled = ["file_tagger_internals/backend_sled"]

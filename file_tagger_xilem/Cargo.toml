@@ -12,8 +12,3 @@ anymore.workspace = true
 miette.workspace = true
 usvg.workspace = true
 xilem.workspace = true
-
-[features]
-default = ["backend_fjall"]
-backend_fjall = ["file_tagger_internals/backend_fjall"]
-backend_sled = ["file_tagger_internals/backend_sled"]
