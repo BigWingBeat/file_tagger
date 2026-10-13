@@ -3,9 +3,9 @@ use std::{
     path::Path,
 };
 
-use rusqlite::{PrepFlags, Statement, config::DbConfig::*};
+use rusqlite::{OpenFlags, PrepFlags, Statement, config::DbConfig::*};
 
-pub const PRAGMA_APPLICATION_ID: i32 = 0x8efdc926;
+pub const PRAGMA_APPLICATION_ID: i32 = 0x25b9fbdb;
 pub const PRAGMA_USER_VERSION: i32 = match i32::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10)
 {
     Ok(i) => i,
@@ -15,12 +15,23 @@ pub const PRAGMA_USER_VERSION: i32 = match i32::from_str_radix(env!("CARGO_PKG_V
 pub struct Connection(rusqlite::Connection);
 
 impl Connection {
-    pub fn open<P: AsRef<Path>>(path: P) -> rusqlite::Result<Self> {
+    pub fn open_existing<P: AsRef<Path>>(path: P) -> rusqlite::Result<Self> {
+        let flags = OpenFlags::default() - OpenFlags::SQLITE_OPEN_CREATE;
+        rusqlite::Connection::open_with_flags(path, flags).map(Self)
+    }
+
+    pub fn open_or_create<P: AsRef<Path>>(path: P) -> rusqlite::Result<Self> {
         rusqlite::Connection::open(path).map(Self)
     }
 
     pub fn open_in_memory() -> rusqlite::Result<Self> {
         rusqlite::Connection::open_in_memory().map(Self)
+    }
+
+    pub fn is_empty_db(&self) -> rusqlite::Result<bool> {
+        self.query_one("SELECT count(*) == 0 FROM sqlite_schema", (), |result| {
+            result.get::<_, bool>(0)
+        })
     }
 
     pub fn configure_sane(&mut self) -> rusqlite::Result<()> {
@@ -37,37 +48,33 @@ impl Connection {
         )
     }
 
-    pub fn verify_id_and_version(&mut self) -> rusqlite::Result<()> {
+    pub fn set_id_and_version(&mut self) -> rusqlite::Result<()> {
+        self.execute_batch(&format!("PRAGMA application_id = {PRAGMA_APPLICATION_ID}; PRAGMA user_version = {PRAGMA_USER_VERSION};"))
+    }
+
+    pub fn verify_id_and_version(&self) -> rusqlite::Result<()> {
         let (id, version) = self.query_one(
             "SELECT * FROM pragma_application_id, pragma_user_version",
             (),
             |result| Ok((result.get::<_, i32>(0)?, result.get::<_, i32>(1)?)),
         )?;
 
-        match id {
-            0 => self.execute_batch(&format!("PRAGMA application_id = {PRAGMA_APPLICATION_ID}"))?,
-            PRAGMA_APPLICATION_ID => {}
-            _ => {
-                return Err(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOTADB),
-                    Some(format!(
-                        "This database is from a different application as it has unexpected PRAGMA application_id = {id:#0x}"
-                    )),
-                ));
-            }
-        };
+        if id != PRAGMA_APPLICATION_ID {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOTADB),
+                Some(format!(
+                    "This database is from a different application as it has unexpected PRAGMA application_id = {id:#x}"
+                )),
+            ));
+        }
 
-        match version {
-            0 => self.execute_batch(&format!("PRAGMA user_version = {PRAGMA_USER_VERSION}"))?,
-            PRAGMA_USER_VERSION => {}
-            _ => {
-                return Err(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOTADB),
-                    Some(format!(
-                        "This database has an incompatible major version number and automatic migrations are not implemented yet (db v{version} vs app v{PRAGMA_USER_VERSION})"
-                    )),
-                ));
-            }
+        if version != PRAGMA_USER_VERSION {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOTADB),
+                Some(format!(
+                    "This database has an incompatible major version number and automatic migrations are not implemented yet (db v{version} vs app v{PRAGMA_USER_VERSION})"
+                )),
+            ));
         }
 
         Ok(())
@@ -110,7 +117,7 @@ impl Database {
         // CREATE TABLE ... STRICT, WITHOUT ROWID;
         // <https://sqlite.org/stricttables.html>
         // <https://sqlite.org/withoutrowid.html>
-        Connection::open(path).and_then(Self::new)
+        Connection::open_or_create(path).and_then(Self::new)
     }
 
     pub fn open_temp() -> rusqlite::Result<Self> {
@@ -119,7 +126,11 @@ impl Database {
 
     pub fn new(mut connection: Connection) -> rusqlite::Result<Self> {
         connection.configure_sane()?;
-        connection.verify_id_and_version()?;
+        if connection.is_empty_db()? {
+            connection.set_id_and_version()?;
+        } else {
+            connection.verify_id_and_version()?;
+        }
         Ok(Self { connection })
     }
 }
