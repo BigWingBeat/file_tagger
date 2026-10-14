@@ -3,7 +3,9 @@ use std::{
     path::Path,
 };
 
-use rusqlite::{OpenFlags, PrepFlags, Statement, config::DbConfig::*};
+use rusqlite::{OpenFlags, PrepFlags, Statement};
+
+pub use rusqlite::Result;
 
 pub const PRAGMA_APPLICATION_ID: i32 = 0x25b9fbdb;
 pub const PRAGMA_USER_VERSION: i32 = match i32::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10)
@@ -36,6 +38,7 @@ impl Connection {
 
     pub fn configure_sane(&mut self) -> rusqlite::Result<()> {
         // <https://sqlite.org/c3ref/c_dbconfig_defensive.html>
+        use rusqlite::config::DbConfig::*;
         self.set_db_config(SQLITE_DBCONFIG_ENABLE_FKEY, true)?;
         self.set_db_config(SQLITE_DBCONFIG_DEFENSIVE, true)?;
         self.set_db_config(SQLITE_DBCONFIG_DQS_DML, false)?;
@@ -49,6 +52,7 @@ impl Connection {
     }
 
     pub fn set_id_and_version(&mut self) -> rusqlite::Result<()> {
+        // It's seemingly impossible to use normal parameters with PRAGMA statements, so we have to do this instead
         self.execute_batch(&format!("PRAGMA application_id = {PRAGMA_APPLICATION_ID}; PRAGMA user_version = {PRAGMA_USER_VERSION};"))
     }
 

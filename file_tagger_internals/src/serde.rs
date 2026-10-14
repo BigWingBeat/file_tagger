@@ -422,13 +422,7 @@ pub trait Serde: AsBytes + FromBytes {}
 impl<T> Serde for T where T: AsBytes + FromBytes {}
 
 /// Most tag names should be less than this number of bytes.
-/// This is the same threshhold used by the backend's buffer type.
-/// For fjall, this is [`fjall::Slice`].
-/// For sled, this is [`sled::IVec`].
-const INLINE_SIZE: usize = cfg_select! {
-    feature = "backend_fjall" => 20,
-    feature = "backend_sled" => 22,
-};
+const INLINE_SIZE: usize = 22;
 
 pub type SmallVec<T> = smallvec::SmallVec<[T; INLINE_SIZE]>;
 

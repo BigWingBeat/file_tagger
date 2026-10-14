@@ -10,13 +10,7 @@ mod tags;
 mod types;
 
 use crate::{
-    DB_FOLDER_NAME, Transaction,
-    app_data::RecentFolder,
-    database::{
-        self, Buffer, Conflict, Database, DbApi, DeserError, DeserKvError, NoTransaction, Table,
-    },
-    serde::{AsBytes, BytesInto, FromBytes, Serde, SmallSortedSet},
-    tags_db::tags::{META_DATA, META_TAG},
+    DB_FILE_NAME, app_data::RecentFolder, serde::{AsBytes, BytesInto, FromBytes, Serde, SmallSortedSet}, sqlite::Database, tags_db::tags::{META_DATA, META_TAG},
 };
 
 pub use types::{
@@ -44,7 +38,7 @@ impl DatabaseState {
 
     pub fn open_in_folder(folder: RecentFolder) -> miette::Result<Self> {
         let mut db_folder = folder.clone();
-        db_folder.path.push(DB_FOLDER_NAME);
+        db_folder.path.push(DB_FILE_NAME);
         std::fs::create_dir(&db_folder.path)
             .or_else(|e| {
                 // Ignore error if the dir already exists, as that's fine
