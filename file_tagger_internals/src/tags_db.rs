@@ -10,7 +10,11 @@ mod tags;
 mod types;
 
 use crate::{
-    DB_FILE_NAME, app_data::RecentFolder, serde::{AsBytes, BytesInto, FromBytes, Serde, SmallSortedSet}, sqlite::Database, tags_db::tags::{META_DATA, META_TAG},
+    DB_FILE_NAME,
+    app_data::RecentFolder,
+    serde::{AsBytes, BytesInto, FromBytes, Serde, SmallSortedSet},
+    sqlite::Database,
+    tags_db::tags::{META_DATA, META_TAG},
 };
 
 pub use types::{
@@ -145,6 +149,11 @@ impl<T: DbApi> TagsDatabase<T> {
         };
         db.initialize_well_known_tags()?;
         Ok(db)
+    }
+
+    fn initialize_sqlite_schema(&mut self) -> rusqlite::Result<()> {
+        const SCHEMA: &str = include_str!("schema.sql");
+        self.db.execute_batch(SCHEMA)
     }
 
     fn initialize_well_known_tags(&mut self) -> miette::Result<()> {
