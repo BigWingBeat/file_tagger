@@ -152,7 +152,7 @@ impl<T: DbApi> TagsDatabase<T> {
     }
 
     fn initialize_sqlite_schema(&mut self) -> rusqlite::Result<()> {
-        const SCHEMA: &str = include_str!("schema.sql");
+        const SCHEMA: &str = include_str!("../sql/schema.sql");
         self.db.execute_batch(SCHEMA)
     }
 
