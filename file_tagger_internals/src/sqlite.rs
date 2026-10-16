@@ -47,7 +47,7 @@ impl Connection {
 
         // <https://sqlite.org/pragma.html>
         self.execute_batch(
-            "PRAGMA cell_size_check = true; PRAGMA journal_mode = WAL; PRAGMA locking_mode = EXCLUSIVE;",
+            "PRAGMA cell_size_check = true; PRAGMA journal_mode = WAL; PRAGMA locking_mode = EXCLUSIVE; PRAGMA recursive_triggers = true",
         )
     }
 

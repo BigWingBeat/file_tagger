@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tag_data(
 	entry INTEGER NOT NULL REFERENCES entries,
 	tag TEXT NOT NULL REFERENCES tags(tag),
 	data ANY,
-	PRIMARY KEY (entry, tag)
+	PRIMARY KEY (entry, tag) /* ON CONFLICT REPLACE -- undecided on this, it means instead of update we get delete + insert with new rowid */
 ) STRICT;
 
 /* This saves having to do a linear scan over `tag_data` when searching for entries with specific tags (the most common search),

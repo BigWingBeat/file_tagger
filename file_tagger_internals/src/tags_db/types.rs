@@ -451,6 +451,7 @@ pub enum TagDataType {
     Float(AnyRange<f64>),
     /// An opaque binary blob
     Buffer,
+    // TODO: add datetime type
 }
 
 impl TagDataType {
@@ -597,6 +598,7 @@ pub enum TagData {
     Float(f64),
     /// An opaque binary blob
     Buffer(Buffer),
+    // TODO: add datetime type
 }
 
 impl TagData {
