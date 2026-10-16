@@ -9,11 +9,13 @@ CREATE TABLE IF NOT EXISTS tags(tag_entry INTEGER PRIMARY KEY REFERENCES entries
 /* many-to-many index between entries and tags, plus associated tag data */
 /* composite primary key enforces that any single tag cannot applied to any single entry multiple times */
 /* tag data type is heterogeneous between different tags but homogeneous within all instances of a single tag */
+/* Insert-or-update should be done with an "upsert" clause, like so:
+`INSERT INTO tag_data VALUES(...) ON CONFLICT DO UPDATE SET data = excluded.data;` */
 CREATE TABLE IF NOT EXISTS tag_data(
 	entry INTEGER NOT NULL REFERENCES entries,
 	tag TEXT NOT NULL REFERENCES tags(tag),
 	data ANY,
-	PRIMARY KEY (entry, tag) /* ON CONFLICT REPLACE -- undecided on this, it means instead of update we get delete + insert with new rowid */
+	PRIMARY KEY (entry, tag)
 ) STRICT;
 
 /* This saves having to do a linear scan over `tag_data` when searching for entries with specific tags (the most common search),
