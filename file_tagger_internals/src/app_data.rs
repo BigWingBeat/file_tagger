@@ -1,6 +1,5 @@
 use std::{
     ffi::OsString,
-    fs::File,
     path::{Path, PathBuf},
 };
 
@@ -8,9 +7,8 @@ use arrayvec::ArrayVec;
 use miette::IntoDiagnostic;
 
 use crate::{
-    APP_DATA_FOLDER_NAME, Buffer,
-    serde::{AsBytes, Bytes, BytesInto, FromBytes, SizeHint, SmallVec},
-    sqlite::Database,
+    APP_DATA_FOLDER_NAME,
+    serde::{AsBytes, BytesInto, SmallVec},
 };
 
 #[derive(Clone)]
@@ -59,8 +57,8 @@ impl AppData {
     }
 
     fn open_path(path: impl AsRef<Path>) -> miette::Result<Self> {
-        let bytes = std::fs::read(path)?;
-        let paths: SmallVec<String> = bytes.bytes_into()?;
+        let bytes = std::fs::read(path).into_diagnostic()?;
+        let paths: SmallVec<String> = bytes.bytes_into().into_diagnostic()?;
         let recent_folders = Box::new(
             paths
                 .iter()
@@ -84,13 +82,12 @@ impl AppData {
             .clone()
             .into_iter()
             .filter_map(|folder| folder.path.into_string().ok())
-            .collect::<SmallVec<String>>()
-            .as_bytes();
+            .collect::<SmallVec<String>>();
 
-        std::fs::write(path, buffer)
+        std::fs::write(path, buffer.as_bytes())
     }
 
-    pub fn push_recent_folder(&mut self, folder: PathBuf) -> std::io::Result<()> {
+    pub fn push_recent_folder(&mut self, folder: PathBuf) -> std::io::Result<&RecentFolder> {
         let folder = folder.into();
         // Doing a linear search is fine as this vec is always small.
         // We can't just use `contains()` here as we need to get a reference to the element.
@@ -120,7 +117,7 @@ impl AppData {
             }
         };
 
-        self.write_recent_folders()
+        self.write_recent_folders().map(|_| folder)
     }
 
     pub fn recent_folders(&self) -> &[RecentFolder] {

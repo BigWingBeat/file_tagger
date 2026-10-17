@@ -31,9 +31,11 @@ impl Connection {
     }
 
     pub fn is_empty_db(&self) -> rusqlite::Result<bool> {
-        self.query_one("SELECT count(*) == 0 FROM sqlite_schema", (), |result| {
-            result.get::<_, bool>(0)
-        })
+        self.query_one(
+            "VALUES(NOT EXISTS(SELECT * from sqlite_schema))",
+            (),
+            |result| result.get::<_, bool>(0),
+        )
     }
 
     pub fn configure_sane(&mut self) -> rusqlite::Result<()> {
@@ -52,7 +54,7 @@ impl Connection {
     }
 
     pub fn set_id_and_version(&mut self) -> rusqlite::Result<()> {
-        // It's seemingly impossible to use normal parameters with PRAGMA statements, so we have to do this instead
+        // It's seemingly impossible to use normal parameters with PRAGMA statements, so we have to use `format` instead
         self.execute_batch(&format!("PRAGMA application_id = {PRAGMA_APPLICATION_ID}; PRAGMA user_version = {PRAGMA_USER_VERSION};"))
     }
 
@@ -117,14 +119,10 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Self> {
-        // Interesting misc:
-        // CREATE TABLE ... STRICT, WITHOUT ROWID;
-        // <https://sqlite.org/stricttables.html>
-        // <https://sqlite.org/withoutrowid.html>
         Connection::open_or_create(path).and_then(Self::new)
     }
 
-    pub fn open_temp() -> rusqlite::Result<Self> {
+    pub fn open_temporary() -> rusqlite::Result<Self> {
         Connection::open_in_memory().and_then(Self::new)
     }
 

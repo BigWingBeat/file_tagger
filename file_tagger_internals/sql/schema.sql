@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS entries(entry INTEGER PRIMARY KEY) STRICT;
 
 /* tag_entry is rowid alias so unique and indexed by table B-Tree rather than less optimal index B-Tree */
 /* text implicitly indexed by unique constraint */
-CREATE TABLE IF NOT EXISTS tags(tag_entry INTEGER PRIMARY KEY REFERENCES entries, tag TEXT NOT NULL UNIQUE) STRICT;
+CREATE TABLE IF NOT EXISTS tags(tag_entry INTEGER PRIMARY KEY REFERENCES entries ON DELETE CASCADE, tag TEXT NOT NULL UNIQUE) STRICT;
 
 /* many-to-many index between entries and tags, plus associated tag data */
 /* composite primary key enforces that any single tag cannot applied to any single entry multiple times */
@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS tags(tag_entry INTEGER PRIMARY KEY REFERENCES entries
 /* Insert-or-update should be done with an "upsert" clause, like so:
 `INSERT INTO tag_data VALUES(...) ON CONFLICT DO UPDATE SET data = excluded.data;` */
 CREATE TABLE IF NOT EXISTS tag_data(
-	entry INTEGER NOT NULL REFERENCES entries,
-	tag TEXT NOT NULL REFERENCES tags(tag),
+	entry INTEGER NOT NULL REFERENCES entries ON DELETE CASCADE,
+	tag TEXT NOT NULL REFERENCES tags(tag) ON DELETE CASCADE ON UPDATE CASCADE,
 	data ANY,
 	PRIMARY KEY (entry, tag)
 ) STRICT;

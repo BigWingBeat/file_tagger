@@ -16,7 +16,6 @@ miette.workspace = true
 replace_with.workspace = true
 rfd.workspace = true
 rusqlite.workspace = true
-scru64.workspace = true
 small_sorted_set.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true

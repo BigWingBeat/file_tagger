@@ -2,30 +2,28 @@ use std::{
     cmp::Ordering,
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
+    num::ParseIntError,
     ops::{Bound, RangeBounds},
     str::{FromStr, Utf8Error},
 };
 
 use byteview::ByteView;
 use estr::Estr;
-use scru64::{Scru64Id, id::ParseError};
 use thiserror::Error;
 
 use crate::{
     Buffer,
     serde::{
-        AsBytes, BoolError, Bytes, BytesInto, BytesIntoError, DerefProxy, FromBytes,
-        LENGTH_PREFIX_BYTES, Prefixable, Reader, SizeHint, SmallVec, SmallVecError, UnexpectedEof,
-        Writer,
+        AsBytes, BoolError, Bytes, BytesInto, BytesIntoError, FromBytes, LENGTH_PREFIX_BYTES,
+        Prefixable, Reader, SizeHint, SmallVec, SmallVecError, UnexpectedEof, Writer,
     },
 };
 
 /// Identifies a single entry in the database, which can have many associated tags.
-/// Value is stored in big-endian form for correct lexicographic ordering.
-/// Used for non-tag entries
+/// Value is stored in big-endian form for correct lexicographic ordering. TODO: or not?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct Entry(pub(super) Scru64Id);
+pub struct Entry(i64);
 
 impl Display for Entry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -34,7 +32,7 @@ impl Display for Entry {
 }
 
 impl FromStr for Entry {
-    type Err = ParseError;
+    type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         FromStr::from_str(s).map(Self)
@@ -42,49 +40,28 @@ impl FromStr for Entry {
 }
 
 impl SizeHint for Entry {
-    const SIZE_HINT: Option<usize> = Some(size_of::<u64>());
+    const SIZE_HINT: Option<usize> = Some(size_of::<i64>());
 }
 
 impl AsBytes for Entry {
-    type Bytes = DerefProxy<[u8; 8]>;
+    type Bytes = Buffer;
 
     fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
-        Bytes::Owned(self.0.to_u64().to_be_bytes().into())
+        self.0.as_bytes()
     }
-}
-
-#[derive(Error, Debug)]
-pub enum EntryParseError {
-    #[error("unexpected EOF while reading entry ID")]
-    UnexpectedEOF(#[from] UnexpectedEof),
-    #[error(transparent)]
-    Range(#[from] scru64::id::RangeError<u64>),
 }
 
 impl FromBytes for Entry {
-    type Error = EntryParseError;
+    type Error = UnexpectedEof;
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        bytes
-            .read_exact()
-            .map_err(Into::into)
-            .map(u64::from_be_bytes)
-            .and_then(|u64| u64.try_into().map_err(Into::into))
-            .map(Self)
+        FromBytes::try_from(bytes).map(Self)
     }
 }
 
-impl From<Scru64Id> for Entry {
-    fn from(value: Scru64Id) -> Self {
-        Self(value)
-    }
-}
-
-impl TryFrom<[u8; 8]> for Entry {
-    type Error = scru64::id::RangeError<u64>;
-
-    fn try_from(bytes: [u8; 8]) -> Result<Self, Self::Error> {
-        u64::from_be_bytes(bytes).try_into().map(Self)
+impl From<i64> for Entry {
+    fn from(entry: i64) -> Self {
+        Self(entry)
     }
 }
 

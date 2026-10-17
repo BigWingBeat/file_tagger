@@ -19,7 +19,6 @@ miette = { version = "7.6", features = ["fancy-no-syscall"] }
 replace_with = "0.1"
 rfd = "0.17"
 rusqlite = { version = "0.40", features = ["extra_check", "modern_sqlite"] }
-scru64 = { version = "2.0", default-features = false, features = ["std"] }
 small_sorted_set = "1.0"
 smallvec = { version = "1.16", features = ["union", "const_generics", "const_new"] }
 thiserror = "2.0"
