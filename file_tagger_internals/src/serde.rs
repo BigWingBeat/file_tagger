@@ -1,13 +1,10 @@
-use std::ops::Deref;
+use std::{alloc::Layout, ops::Deref};
 
-use byteview::{Builder, ByteView};
 use thiserror::Error;
 
 mod impls;
 
 pub use impls::{BoolError, SmallVecError, TupleError};
-
-use crate::Buffer;
 
 /// Like [`Deref`], but with extra `AsRef<[u8]>` bounds built-in so we can just put
 /// `T: HasBytes` everywhere instead of `T: AsRef<[u8]> + Deref<Target: AsRef<[u8]>>`
@@ -224,8 +221,9 @@ impl<'a> From<&'a [u8]> for Reader<'a> {
 /// We do it this way, instead of having the `write` methods fail eagerly, to reduce the amount
 /// of (possibly panicking) branches that are generated in the middle of serialization code.
 pub struct Writer {
-    buffer: Builder,
+    buffer: *mut u8,
     written: usize,
+    capacity: usize,
 }
 
 #[derive(Error, Debug)]
@@ -240,23 +238,40 @@ impl Writer {
     /// Allocate exactly `size` bytes to be written
     #[inline]
     pub fn new(size: usize) -> Self {
-        Self {
-            buffer: ByteView::builder(size),
-            written: 0,
+        let layout = Layout::array::<u8>(size).unwrap();
+        if layout.size() == 0 {
+            // With a capacity of 0 any attempted writes will just error instead of causing UB
+            Self {
+                buffer: std::ptr::dangling_mut(),
+                written: 0,
+                capacity: 0,
+            }
+        } else {
+            // SAFETY: we checked that the layout has a non-zero size
+            let buffer = unsafe { std::alloc::alloc(layout) };
+            if buffer.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
+
+            Self {
+                buffer,
+                written: 0,
+                capacity: layout.size(),
+            }
         }
     }
 
     #[inline]
     fn try_write(&mut self, bytes: &[u8]) {
         let range_end = self.written.saturating_add(bytes.len());
-        if range_end > self.buffer.len() {
+        if range_end > self.capacity {
             // Sentinel value to indicate that writes have exceeded our total len.
             // Once this happens once, we will always enter this branch every time
             self.written = usize::MAX;
         } else {
             // SAFETY: We check that `a.saturating_add(b)` is in-bounds, which implies that `a` and `b` are both also in-bounds
             unsafe {
-                let dst = self.buffer.as_mut_ptr().add(self.written);
+                let dst = self.buffer.add(self.written);
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
             }
             self.written = range_end;
@@ -268,14 +283,14 @@ impl Writer {
     #[inline]
     fn try_write_array<const N: usize>(&mut self, bytes: &[u8; N]) {
         let range_end = self.written.saturating_add(bytes.len());
-        if range_end > self.buffer.len() {
+        if range_end > self.capacity {
             // Sentinel value to indicate that writes have exceeded our total len.
             // Once this happens once, we will always enter this branch every time
             self.written = usize::MAX;
         } else {
             // SAFETY: We check that `a.saturating_add(b)` is in-bounds, which implies that `a` and `b` are both also in-bounds
             unsafe {
-                let dst = self.buffer.as_mut_ptr().add(self.written);
+                let dst = self.buffer.add(self.written);
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
             }
             self.written = range_end;
@@ -312,11 +327,22 @@ impl Writer {
 
     /// Return the written bytes, or an error if the number of written bytes did not match the number of initially allocated bytes
     #[inline]
-    pub fn finish(self) -> Result<Buffer, IncorrectBufferSize> {
-        if self.written != self.buffer.len() {
-            Err(IncorrectBufferSize(self.buffer.len(), self.written))
+    pub fn finish(self) -> Result<Box<[u8]>, IncorrectBufferSize> {
+        if self.written != self.capacity {
+            // capacity == 0 means we did not allocate and thus do not need to deallocate
+            if self.capacity > 0 {
+                // SAFETY: capacity > 0 means `buffer` was obtained from a successful allocation with a valid layout
+                unsafe {
+                    let layout = Layout::array::<u8>(self.capacity).unwrap_unchecked();
+                    std::alloc::dealloc(self.buffer, layout);
+                }
+            }
+            Err(IncorrectBufferSize(self.capacity, self.written))
         } else {
-            Ok(self.buffer.freeze().into())
+            let ptr = std::ptr::slice_from_raw_parts_mut(self.buffer, self.capacity);
+            // SAFETY: the ptr was acquired either from `std::alloc::alloc` or `std::ptr::dangling` (if capacity is 0)
+            let b = unsafe { Box::from_raw(ptr) };
+            Ok(b)
         }
     }
 }
