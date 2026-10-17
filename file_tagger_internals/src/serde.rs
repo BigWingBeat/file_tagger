@@ -328,7 +328,12 @@ impl Writer {
     /// Return the written bytes, or an error if the number of written bytes did not match the number of initially allocated bytes
     #[inline]
     pub fn finish(self) -> Result<Box<[u8]>, IncorrectBufferSize> {
-        if self.written != self.capacity {
+        if self.written == self.capacity {
+            let ptr = std::ptr::slice_from_raw_parts_mut(self.buffer, self.capacity);
+            // SAFETY: the ptr was acquired either from `std::alloc::alloc` or `std::ptr::dangling` (if capacity is 0)
+            let b = unsafe { Box::from_raw(ptr) };
+            Ok(b)
+        } else {
             // capacity == 0 means we did not allocate and thus do not need to deallocate
             if self.capacity > 0 {
                 // SAFETY: capacity > 0 means `buffer` was obtained from a successful allocation with a valid layout
@@ -338,11 +343,6 @@ impl Writer {
                 }
             }
             Err(IncorrectBufferSize(self.capacity, self.written))
-        } else {
-            let ptr = std::ptr::slice_from_raw_parts_mut(self.buffer, self.capacity);
-            // SAFETY: the ptr was acquired either from `std::alloc::alloc` or `std::ptr::dangling` (if capacity is 0)
-            let b = unsafe { Box::from_raw(ptr) };
-            Ok(b)
         }
     }
 }
