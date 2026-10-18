@@ -659,7 +659,7 @@ impl ToSql for TagData {
             TagData::String(s) => s.to_sql(),
             TagData::Enum(s) => s.to_sql(),
             TagData::Bool(b) => b.to_sql(),
-            TagData::Unsigned(u) => u.to_sql(),
+            TagData::Unsigned(u) => Ok(u.cast_signed().into()),
             TagData::Signed(i) => i.to_sql(),
             TagData::Float(f) => f.to_sql(),
             TagData::Buffer(b) => b.to_sql(),
