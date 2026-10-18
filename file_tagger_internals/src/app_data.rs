@@ -5,10 +5,11 @@ use std::{
 
 use arrayvec::ArrayVec;
 use miette::IntoDiagnostic;
+use smallvec::SmallVec;
 
 use crate::{
     APP_DATA_FOLDER_NAME,
-    serde::{AsBytes, BytesInto, SmallVec},
+    serde::{AsBytes, BytesInto},
 };
 
 #[derive(Clone)]
@@ -58,7 +59,7 @@ impl AppData {
 
     fn open_path(path: impl AsRef<Path>) -> miette::Result<Self> {
         let bytes = std::fs::read(path).into_diagnostic()?;
-        let paths: SmallVec<String> = bytes.bytes_into().into_diagnostic()?;
+        let paths: SmallVec<[String; MAX_RECENTS]> = bytes.bytes_into().into_diagnostic()?;
         let recent_folders = Box::new(
             paths
                 .iter()
@@ -82,7 +83,7 @@ impl AppData {
             .clone()
             .into_iter()
             .filter_map(|folder| folder.path.into_string().ok())
-            .collect::<SmallVec<String>>();
+            .collect::<SmallVec<[String; MAX_RECENTS]>>();
 
         std::fs::write(path, buffer.as_bytes())
     }
