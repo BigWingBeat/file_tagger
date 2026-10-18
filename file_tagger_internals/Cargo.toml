@@ -9,7 +9,6 @@ license.workspace = true
 [dependencies]
 anymore.workspace = true
 arrayvec.workspace = true
-byteview.workspace = true
 dirs.workspace = true
 estr.workspace = true
 miette.workspace = true

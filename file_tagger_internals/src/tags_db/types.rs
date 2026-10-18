@@ -1,22 +1,24 @@
 use std::{
     cmp::Ordering,
     convert::Infallible,
+    error::Error,
     fmt::{Debug, Display, Formatter},
     num::ParseIntError,
     ops::{Bound, RangeBounds},
     str::{FromStr, Utf8Error},
 };
 
-use byteview::ByteView;
 use estr::Estr;
+use rusqlite::{
+    ToSql,
+    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
+};
+use smallvec::SmallVec;
 use thiserror::Error;
 
-use crate::{
-    Buffer,
-    serde::{
-        AsBytes, BoolError, Bytes, BytesInto, BytesIntoError, FromBytes, LENGTH_PREFIX_BYTES,
-        Prefixable, Reader, SizeHint, SmallVec, SmallVecError, UnexpectedEof, Writer,
-    },
+use crate::serde::{
+    AsBytes, BoolError, Bytes, BytesInto, BytesIntoError, FromBytes, LENGTH_PREFIX_BYTES,
+    Prefixable, Reader, SizeHint, SmallVecError, UnexpectedEof, Writer,
 };
 
 /// Identifies a single entry in the database, which can have many associated tags.
@@ -28,6 +30,18 @@ pub struct Entry(i64);
 impl Display for Entry {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl FromSql for Entry {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(Self)
+    }
+}
+
+impl ToSql for Entry {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
     }
 }
 
@@ -44,7 +58,7 @@ impl SizeHint for Entry {
 }
 
 impl AsBytes for Entry {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&'_ self) -> Bytes<'_, Self::Bytes> {
         self.0.as_bytes()
@@ -83,16 +97,20 @@ impl Ord for Tag {
     }
 }
 
-impl SizeHint for Tag {
-    const SIZE_HINT: Option<usize> = None;
+impl FromSql for Tag {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_str().map(Estr::from).map(Self)
+    }
 }
 
-impl FromBytes for Tag {
-    type Error = Utf8Error;
-
-    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        FromBytes::try_from(bytes).map(Self)
+impl ToSql for Tag {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
     }
+}
+
+impl SizeHint for Tag {
+    const SIZE_HINT: Option<usize> = None;
 }
 
 impl AsBytes for Tag {
@@ -100,6 +118,14 @@ impl AsBytes for Tag {
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         self.0.as_bytes()
+    }
+}
+
+impl FromBytes for Tag {
+    type Error = Utf8Error;
+
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        FromBytes::try_from(bytes).map(Self)
     }
 }
 
@@ -143,6 +169,7 @@ impl Display for Tag {
 /// That is intentional, as there is no corresponding syntax nor dedicated range type(s) for that.
 ///
 /// # Example
+///
 /// ```
 /// # use std::ops::*;
 /// # use file_tagger_internals::AnyRange;
@@ -170,12 +197,12 @@ pub struct AnyRange<T>(pub Option<T>, pub Bound<T>);
 #[error("{0} is outside the range {1}")]
 pub struct RangeError<T>(T, AnyRange<T>);
 
-impl<T: PartialOrd + Clone> AnyRange<T> {
-    pub fn validate_range(&self, element: T) -> Result<T, RangeError<T>> {
+impl<T: PartialOrd> AnyRange<T> {
+    pub fn validate_range(self, element: T) -> Result<T, RangeError<T>> {
         if self.contains(&element) {
             Ok(element)
         } else {
-            Err(RangeError(element, self.clone()))
+            Err(RangeError(element, self))
         }
     }
 }
@@ -269,13 +296,34 @@ impl<T> From<std::range::RangeToInclusive<T>> for AnyRange<T> {
     }
 }
 
+impl<T> FromSql for AnyRange<T>
+where
+    T: FromBytes + 'static,
+    T::Error: Error + Send + Sync + 'static,
+{
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_blob()
+            .and_then(|b| b.bytes_into().map_err(FromSqlError::other))
+    }
+}
+
+impl<T: AsBytes> ToSql for AnyRange<T> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        match self.as_bytes() {
+            Bytes::Borrowed(b) => Ok(b.into()),
+            Bytes::Owned(b) => Ok(b.into_vec().into()),
+        }
+    }
+}
+
 impl<T> SizeHint for AnyRange<T> {
     /// In order for this to be `Some` we would have to include T::SIZE_HINT-length strings of 0s for `None` and `Unbounded`
     const SIZE_HINT: Option<usize> = None;
 }
 
 impl<T: AsBytes> AsBytes for AnyRange<T> {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         let Self(start, end) = self;
@@ -417,7 +465,7 @@ pub enum TagDataType {
     /// A UTF-8 string
     String,
     /// An enum, a fixed set of allowed UTF-8 strings.
-    Enum(SmallVec<Estr>),
+    Enum(SmallVec<[Estr; 3]>),
     /// A true/false boolean
     Bool,
     /// Unsigned integer within a given range
@@ -462,31 +510,49 @@ impl TagDataType {
     }
 }
 
+impl FromSql for TagDataType {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_blob()
+            .and_then(|b| b.bytes_into().map_err(FromSqlError::other))
+    }
+}
+
+impl ToSql for TagDataType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        match self.as_bytes() {
+            Bytes::Borrowed(b) => Ok(b.into()),
+            Bytes::Owned(b) => Ok(b.into_vec().into()),
+        }
+    }
+}
+
 impl SizeHint for TagDataType {
     /// This is only `None` thanks to the `Enum` variant
     const SIZE_HINT: Option<usize> = None;
 }
 
 impl AsBytes for TagDataType {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
+        let discriminant = self.discriminant();
         // All of the variants with data are serialized exactly the same way
         // but can't be folded into one block as the types are heterogeneous...
-        macro_rules! serialize {
-            ($discriminant:ident, $data:ident) => {
-                Bytes::Owned(ByteView::fused(&[$discriminant], $data.as_bytes().as_ref()).into())
-            };
-        }
-
-        let discriminant = self.discriminant();
+        let serialize = |data: &[u8]| {
+            let mut writer = Writer::new(1 + data.len());
+            writer.write_one(discriminant);
+            writer.write(data);
+            Bytes::Owned(writer.finish().unwrap())
+        };
         match self {
-            Self::Enum(variants) => serialize!(discriminant, variants),
-            Self::Unsigned(range) => serialize!(discriminant, range),
-            Self::Signed(range) => serialize!(discriminant, range),
-            Self::Float(range) => serialize!(discriminant, range),
+            Self::Enum(variants) => serialize(variants.as_bytes().as_ref()),
+            Self::Unsigned(range) => serialize(range.as_bytes().as_ref()),
+            Self::Signed(range) => serialize(range.as_bytes().as_ref()),
+            Self::Float(range) => serialize(range.as_bytes().as_ref()),
             // Variants without data are just the discriminant
-            _ => Bytes::Owned(Buffer::new(&[discriminant])),
+            // SAFETY: this is safe because the type has #[repr(u8)]
+            _ => unsafe { std::mem::transmute::<&Self, &u8>(self) }.as_bytes(),
         }
     }
 }
@@ -574,7 +640,7 @@ pub enum TagData {
     /// Floating point number within a given range
     Float(f64),
     /// An opaque binary blob
-    Buffer(Buffer),
+    Buffer(Box<[u8]>),
     // TODO: add datetime type
 }
 
@@ -586,22 +652,28 @@ impl TagData {
     }
 }
 
+impl ToSql for TagData {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        match self {
+            TagData::None(nuh_uh) => match *nuh_uh {},
+            TagData::String(s) => s.to_sql(),
+            TagData::Enum(s) => s.to_sql(),
+            TagData::Bool(b) => b.to_sql(),
+            TagData::Unsigned(u) => u.to_sql(),
+            TagData::Signed(i) => i.to_sql(),
+            TagData::Float(f) => f.to_sql(),
+            TagData::Buffer(b) => b.to_sql(),
+        }
+    }
+}
+
 /// hack
 impl SizeHint for TagData {
     const SIZE_HINT: Option<usize> = unreachable!();
 }
 
-/// hack
-impl FromBytes for TagData {
-    type Error = TagDataError;
-
-    fn try_from(_: &mut Reader) -> Result<Self, Self::Error> {
-        unreachable!()
-    }
-}
-
 impl AsBytes for TagData {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         // We don't need to encode our discriminant as that is stored in the corresponding `TagDataType` instance for this tag
@@ -615,6 +687,15 @@ impl AsBytes for TagData {
             TagData::Float(f) => f.as_bytes(),
             TagData::Buffer(buf) => buf.as_bytes(),
         }
+    }
+}
+
+/// hack
+impl FromBytes for TagData {
+    type Error = TagDataError;
+
+    fn try_from(_: &mut Reader) -> Result<Self, Self::Error> {
+        unreachable!()
     }
 }
 
@@ -672,7 +753,7 @@ pub enum TagDataError {
 
 impl TagData {
     /// Deserialize the raw tag data to a strongly-typed value, according to the provided type metadata
-    pub fn deserialize(buf: Buffer, metadata: &TagDataType) -> Result<Self, BytesIntoError<Self>> {
+    pub fn deserialize(buf: &[u8], metadata: &TagDataType) -> Result<Self, BytesIntoError<Self>> {
         macro_rules! deserialize {
             ($buf:ident, $variant:ident, $deser_err:ident $(, $validate:expr)?) => {
                 $buf.bytes_into()
@@ -696,8 +777,8 @@ impl TagData {
             }
             TagDataType::Bool => deserialize!(buf, Bool, Bool),
             TagDataType::Unsigned(range) => {
-                deserialize!(buf, Unsigned, NumericalDeser, |i| range
-                    .validate_range(i)
+                deserialize!(buf, Unsigned, NumericalDeser, |u| range
+                    .validate_range(u)
                     .map_err(TagDataError::UnsignedRange))
             }
             TagDataType::Signed(range) => {
@@ -706,11 +787,11 @@ impl TagData {
                     .map_err(TagDataError::SignedRange))
             }
             TagDataType::Float(range) => {
-                deserialize!(buf, Float, NumericalDeser, |i| range
-                    .validate_range(i)
+                deserialize!(buf, Float, NumericalDeser, |f| range
+                    .validate_range(f)
                     .map_err(TagDataError::FloatRange))
             }
-            TagDataType::Buffer => Ok(Self::Buffer(buf)),
+            TagDataType::Buffer => Ok(Self::Buffer(buf.into())),
         }
     }
 }
@@ -719,12 +800,10 @@ impl TagData {
 mod test {
     use std::assert_matches;
 
+    use smallvec::SmallVec;
+
     use super::{AnyRange, Entry, Tag, TagData, TagDataType};
-    use crate::{
-        Buffer,
-        serde::{AsBytes, SmallVec},
-        test::serde_roundtrip,
-    };
+    use crate::{serde::AsBytes, test::serde_roundtrip};
 
     #[test]
     fn entry() {
@@ -851,7 +930,7 @@ mod test {
             TagData::Unsigned(0),
             TagData::Signed(0),
             TagData::Float(0.0),
-            TagData::Buffer(Buffer::new(&[])),
+            TagData::Buffer(Box::new([])),
         ];
 
         for (i, metadata) in metadata.iter().enumerate() {
@@ -1033,7 +1112,7 @@ mod test {
         assert_eq!(6, TagData::Float(0.0).discriminant());
 
         assert_eq!(7, TagDataType::Buffer.discriminant());
-        assert_eq!(7, TagData::Buffer(Buffer::new(&[])).discriminant());
+        assert_eq!(7, TagData::Buffer(Box::new([])).discriminant());
     }
 
     #[test]
@@ -1082,7 +1161,7 @@ mod test {
             TagData::deserialize(bytes.as_ref().into(), &TagDataType::Float((..).into())).unwrap();
         assert_eq!(roundtrip, data);
 
-        let data = TagData::Buffer(Buffer::new(&[0, 1]));
+        let data = TagData::Buffer(Box::new([0, 1]));
         let bytes = data.as_bytes();
         assert_eq!(bytes.as_ref(), [0, 1]);
         let roundtrip = TagData::deserialize(bytes.as_ref().into(), &TagDataType::Buffer).unwrap();

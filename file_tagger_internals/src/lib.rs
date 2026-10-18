@@ -15,8 +15,6 @@ pub use crate::{
     tags_db::{AnyRange, DatabaseState, Entry, Tag, TagsDatabase},
 };
 
-pub use byteview::ByteView as Buffer;
-
 // We could use the Cargo env var macros for this but as far as I'm aware there aren't any for workspace name
 const DB_FILE_NAME: &str = ".file_tagger";
 const APP_DATA_FOLDER_NAME: &str = "file_tagger";

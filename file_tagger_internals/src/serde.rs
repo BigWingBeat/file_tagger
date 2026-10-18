@@ -447,13 +447,6 @@ pub trait Serde: AsBytes + FromBytes {}
 
 impl<T> Serde for T where T: AsBytes + FromBytes {}
 
-/// Most tag names should be less than this number of bytes.
-const INLINE_SIZE: usize = 22;
-
-pub type SmallVec<T> = smallvec::SmallVec<[T; INLINE_SIZE]>;
-
-pub type SmallSortedSet<T> = small_sorted_set::SmallSortedSet<T, INLINE_SIZE>;
-
 #[cfg(test)]
 mod test {
     use std::{assert_matches, convert::Infallible};

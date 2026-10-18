@@ -1,14 +1,13 @@
 use std::{convert::Infallible, str::Utf8Error};
 
-use byteview::ByteView;
 use estr::Estr;
 use small_sorted_set::SmallSortedSet;
 use smallvec::SmallVec;
 use thiserror::Error;
 
 use super::{
-    AsBytes, Buffer, Bytes, DerefProxy, FromBytes, LENGTH_PREFIX_BYTES, Prefixable, Reader,
-    SizeHint, UnexpectedEof, Writer,
+    AsBytes, Bytes, DerefProxy, FromBytes, LENGTH_PREFIX_BYTES, Prefixable, Reader, SizeHint,
+    UnexpectedEof, Writer,
 };
 
 /* Primitive numerical types */
@@ -21,11 +20,11 @@ macro_rules! impl_serde_numerical {
             }
 
             impl AsBytes for $ty {
-                type Bytes = Buffer;
+                type Bytes = Box<[u8]>;
 
                 fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
                     // SAFETY: primitive numerical types are POD and as such are always safe to cast to raw bytes
-                    // See also: <https://doc.rust-lang.org/stable/src/core/num/uint_macros.rs.html#4016-4017>
+                    // See also: <https://doc.rust-lang.org/stable/src/core/num/uint_macros.rs.html#4056-4057>
                     let bytes = unsafe { std::slice::from_raw_parts(std::ptr::from_ref(self) as *const u8, size_of::<Self>()) };
                     // The safe alternative would be using `to_ne_bytes()` and returning the array as `Bytes::Owned`,
                     // but that makes these impls more annoying to use for Reasons
@@ -58,7 +57,7 @@ impl SizeHint for bool {
 }
 
 impl AsBytes for bool {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         // SAFETY: `bool` is POD and as such is always safe to cast to raw bytes
@@ -94,14 +93,6 @@ impl<const N: usize> SizeHint for [u8; N] {
     const SIZE_HINT: Option<usize> = Some(N);
 }
 
-impl<const N: usize> FromBytes for [u8; N] {
-    type Error = UnexpectedEof;
-
-    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
-        bytes.read_exact()
-    }
-}
-
 impl<const N: usize> AsBytes for [u8; N] {
     type Bytes = DerefProxy<Self>;
 
@@ -110,13 +101,21 @@ impl<const N: usize> AsBytes for [u8; N] {
     }
 }
 
-/* Buffer */
+impl<const N: usize> FromBytes for [u8; N] {
+    type Error = UnexpectedEof;
 
-impl SizeHint for Buffer {
+    fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
+        bytes.read_exact()
+    }
+}
+
+/* Box<[u8]> */
+
+impl SizeHint for Box<[u8]> {
     const SIZE_HINT: Option<usize> = None;
 }
 
-impl AsBytes for Buffer {
+impl AsBytes for Box<[u8]> {
     type Bytes = Self;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
@@ -124,7 +123,7 @@ impl AsBytes for Buffer {
     }
 }
 
-impl FromBytes for Buffer {
+impl FromBytes for Box<[u8]> {
     type Error = Infallible;
 
     fn try_from(bytes: &mut Reader) -> Result<Self, Self::Error> {
@@ -202,7 +201,7 @@ impl<T, const N: usize> AsBytes for SmallVec<[T; N]>
 where
     T: AsBytes,
 {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         if let Some(size) = T::SIZE_HINT {
@@ -304,7 +303,7 @@ impl<T, const N: usize> SizeHint for SmallSortedSet<T, N> {
 }
 
 impl<T: AsBytes, const N: usize> AsBytes for SmallSortedSet<T, N> {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         self.as_vec().as_bytes()
@@ -336,22 +335,25 @@ impl<T: SizeHint, U: SizeHint> SizeHint for (T, U) {
 }
 
 impl<T: AsBytes, U: AsBytes> AsBytes for (T, U) {
-    type Bytes = Buffer;
+    type Bytes = Box<[u8]>;
 
     fn as_bytes(&self) -> Bytes<'_, Self::Bytes> {
         let (t, u) = self;
         let t = t.as_bytes();
         let u = u.as_bytes();
+        let total_len = t.len() + u.len();
         if T::SIZE_HINT.is_none() {
             // If `T` has a variable size, it needs a length prefix (`U` doesn't because it just assumes the entire rest of the buffer)
-            let total_bytes = LENGTH_PREFIX_BYTES + t.len() + u.len();
+            let total_bytes = LENGTH_PREFIX_BYTES + total_len;
             let mut writer = Writer::new(total_bytes);
             writer.write_with_length_prefix(t);
             writer.write(u);
             Bytes::Owned(writer.finish().unwrap())
         } else {
-            // A built-in method that does exactly what we're manually doing above, but only for 2 input slices
-            Bytes::Owned(ByteView::fused(t.as_ref(), u.as_ref()).into())
+            let mut writer = Writer::new(total_len);
+            writer.write(t);
+            writer.write(u);
+            Bytes::Owned(writer.finish().unwrap())
         }
     }
 }
@@ -413,14 +415,16 @@ impl<T: FromBytes, U: FromBytes> FromBytes for (T, U) {
 
 /// Naïvely using the first element directly for a prefix search would fail if it has a variable size, due to the length prefix
 impl<T: AsBytes, U> Prefixable<T> for (T, U) {
-    type Prefix = Buffer;
+    type Prefix = Box<[u8]>;
 
     fn prefix(t: &T) -> Self::Prefix {
         let t = t.as_bytes();
         if T::SIZE_HINT.is_none() {
             // If `T` has a variable size, it needs a length prefix
-            let len = (t.len() as u32).to_le_bytes();
-            ByteView::fused(len.as_ref(), t.as_ref()).into()
+            let total_bytes = LENGTH_PREFIX_BYTES + t.len();
+            let mut writer = Writer::new(total_bytes);
+            writer.write_with_length_prefix(t);
+            writer.finish().unwrap()
         } else {
             t.as_ref().into()
         }
@@ -433,7 +437,7 @@ mod test {
     use small_sorted_set::SmallSortedSet;
     use smallvec::{SmallVec, smallvec};
 
-    use super::super::{Buffer, Prefixable};
+    use super::super::Prefixable;
     use crate::test::serde_roundtrip;
 
     #[test]
@@ -593,21 +597,21 @@ mod test {
     }
 
     #[test]
-    fn buffer() {
-        serde_roundtrip!(Buffer, Buffer::new(&[]), []);
+    fn boxed_slice() {
+        serde_roundtrip!(Box<[u8]>, Box::new([]), []);
 
-        serde_roundtrip!(Buffer, Buffer::new(&[0]), [0]);
-        serde_roundtrip!(Buffer, Buffer::new(&[1]), [1]);
-        serde_roundtrip!(Buffer, Buffer::new(&[255]), [255]);
+        serde_roundtrip!(Box<[u8]>, Box::new([0]), [0]);
+        serde_roundtrip!(Box<[u8]>, Box::new([1]), [1]);
+        serde_roundtrip!(Box<[u8]>, Box::new([255]), [255]);
 
-        serde_roundtrip!(Buffer, Buffer::new(&[0, 0]), [0, 0]);
-        serde_roundtrip!(Buffer, Buffer::new(&[1, 0]), [1, 0]);
-        serde_roundtrip!(Buffer, Buffer::new(&[0, 1]), [0, 1]);
+        serde_roundtrip!(Box<[u8]>, Box::new([0, 0]), [0, 0]);
+        serde_roundtrip!(Box<[u8]>, Box::new([1, 0]), [1, 0]);
+        serde_roundtrip!(Box<[u8]>, Box::new([0, 1]), [0, 1]);
 
-        serde_roundtrip!(Buffer, Buffer::new(&[0, 0, 0]), [0, 0, 0]);
-        serde_roundtrip!(Buffer, Buffer::new(&[255, 0, 0]), [255, 0, 0]);
-        serde_roundtrip!(Buffer, Buffer::new(&[0, 255, 0]), [0, 255, 0]);
-        serde_roundtrip!(Buffer, Buffer::new(&[0, 0, 255]), [0, 0, 255]);
+        serde_roundtrip!(Box<[u8]>, Box::new([0, 0, 0]), [0, 0, 0]);
+        serde_roundtrip!(Box<[u8]>, Box::new([255, 0, 0]), [255, 0, 0]);
+        serde_roundtrip!(Box<[u8]>, Box::new([0, 255, 0]), [0, 255, 0]);
+        serde_roundtrip!(Box<[u8]>, Box::new([0, 0, 255]), [0, 0, 255]);
     }
 
     #[test]
@@ -873,26 +877,26 @@ mod test {
 
     #[test]
     fn tuple_prefixable() {
-        assert_eq!(<(u8, u8)>::prefix(&0), [0]);
-        assert_eq!(<(u8, u8)>::prefix(&12), [12]);
-        assert_eq!(<(u8, u16)>::prefix(&1), [1]);
-        assert_eq!(<(u16, u8)>::prefix(&1), [1, 0]);
-        assert_eq!(<(u16, u16)>::prefix(&1), [1, 0]);
-        assert_eq!(<(u8, String)>::prefix(&1), [1]);
-        assert_eq!(<(u16, String)>::prefix(&1), [1, 0]);
+        assert_eq!(*<(u8, u8)>::prefix(&0), [0]);
+        assert_eq!(*<(u8, u8)>::prefix(&12), [12]);
+        assert_eq!(*<(u8, u16)>::prefix(&1), [1]);
+        assert_eq!(*<(u16, u8)>::prefix(&1), [1, 0]);
+        assert_eq!(*<(u16, u16)>::prefix(&1), [1, 0]);
+        assert_eq!(*<(u8, String)>::prefix(&1), [1]);
+        assert_eq!(*<(u16, String)>::prefix(&1), [1, 0]);
         assert_eq!(
-            <(String, u8)>::prefix(&"abcd".to_owned()),
+            *<(String, u8)>::prefix(&"abcd".to_owned()),
             [4, 0, 0, 0, 97, 98, 99, 100]
         );
         assert_eq!(
-            <(String, u16)>::prefix(&"abcd".to_owned()),
+            *<(String, u16)>::prefix(&"abcd".to_owned()),
             [4, 0, 0, 0, 97, 98, 99, 100]
         );
         assert_eq!(
-            <(String, String)>::prefix(&"abcd".to_owned()),
+            *<(String, String)>::prefix(&"abcd".to_owned()),
             [4, 0, 0, 0, 97, 98, 99, 100]
         );
-        assert_eq!(<(String, u8)>::prefix(&"".to_owned()), [0, 0, 0, 0]);
-        assert_eq!(<(String, u8)>::prefix(&"\0".to_owned()), [1, 0, 0, 0, 0]);
+        assert_eq!(*<(String, u8)>::prefix(&"".to_owned()), [0, 0, 0, 0]);
+        assert_eq!(*<(String, u8)>::prefix(&"\0".to_owned()), [1, 0, 0, 0, 0]);
     }
 }
