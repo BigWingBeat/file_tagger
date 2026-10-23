@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rusqlite::{OptionalExtension, types::Null};
+use rusqlite::{CachedStatement, OptionalExtension, types::Null};
 
 mod tags;
 mod types;
@@ -212,9 +212,12 @@ pub trait TagsDatabaseSqlExt {
     fn search_tags_names_by_prefix(
         &self,
         prefix: &str,
-    ) -> impl Iterator<Item = rusqlite::Result<Tag>> {
-        self.prepare_cached("SELECT tag FROM tags WHERE instr(tag, ?) = 1")
-            .and_then(|mut stmt| stmt.query([prefix]))
+    ) -> rusqlite::Result<TagNamesByPrefixIter<'_>> {
+        let mut parameter = String::with_capacity(prefix.len() + 1);
+        parameter.push_str(prefix);
+        parameter.push('%');
+        let stmt = self.prepare_cached("SELECT tag FROM tags WHERE tag LIKE ?")?;
+        Ok(TagNamesByPrefixIter { stmt, parameter })
     }
 }
 
@@ -232,5 +235,17 @@ impl TagsDatabaseSqlExt for rusqlite::Connection {
         name: T,
     ) -> rusqlite::Result<rusqlite::Savepoint<'_>> {
         Self::savepoint_with_name(self, name)
+    }
+}
+
+pub struct TagNamesByPrefixIter<'conn> {
+    stmt: CachedStatement<'conn>,
+    parameter: String,
+}
+
+impl<'conn> TagNamesByPrefixIter<'conn> {
+    pub fn iter(&mut self) -> rusqlite::Result<impl Iterator<Item = rusqlite::Result<Tag>>> {
+        self.stmt
+            .query_map([&self.parameter], |row| row.get::<_, Tag>(0))
     }
 }
