@@ -136,7 +136,7 @@ pub trait TagsDatabaseSqlExt {
     }
 
     /// Returns `None` if the tag does not exist.
-    fn get_tag_entry(&self, tag: &Tag) -> rusqlite::Result<Option<Entry>> {
+    fn get_tag_entry(&self, tag: Tag) -> rusqlite::Result<Option<Entry>> {
         self.prepare_cached("SELECT tag_entry FROM tags WHERE tag = ?")
             .and_then(|mut stmt| {
                 stmt.query_one([tag], |row| row.get::<_, i64>(0).map(Into::into))
@@ -144,13 +144,13 @@ pub trait TagsDatabaseSqlExt {
             })
     }
 
-    fn tag_exists(&self, tag: &Tag) -> rusqlite::Result<bool> {
+    fn tag_exists(&self, tag: Tag) -> rusqlite::Result<bool> {
         self.prepare_cached("VALUES(EXISTS(SELECT * from tags WHERE tag = ?))")
             .and_then(|mut stmt| stmt.query_one([tag], |row| row.get::<_, bool>(0)))
     }
 
     /// Returns `None` if the tag entry does not exist
-    fn get_tag_metadata(&self, tag_entry: Entry) -> rusqlite::Result<Option<TagDataType>> {
+    fn get_tag_entry_metadata(&self, tag_entry: Entry) -> rusqlite::Result<Option<TagDataType>> {
         self.prepare_cached("SELECT data FROM tag_data WHERE (entry, tag) = (?, ?)")
             .and_then(|mut stmt| {
                 stmt.query_one((tag_entry, *META_DATA), |row| row.get::<_, TagDataType>(0))
@@ -158,12 +158,32 @@ pub trait TagsDatabaseSqlExt {
             })
     }
 
+    /// Returns `None` if the tag entry does not exist
+    fn get_tag_metadata(&self, tag: Tag) -> rusqlite::Result<Option<TagDataType>> {
+        match self.get_tag_entry(tag) {
+            Ok(Some(tag_entry)) => self.get_tag_entry_metadata(tag_entry),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Returns `None` if the given tag is not applied to the given entry
     fn get_tag_data(&self, entry: Entry, tag: Tag) -> rusqlite::Result<Option<TagData>> {
+        let metadata = match self.get_tag_metadata(tag) {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
         self.prepare_cached("SELECT data FROM tag_data WHERE (entry, tag) = (?, ?)")
             .and_then(|mut stmt| {
-                stmt.query_one((entry, tag), |row| row.get::<_, TagData>(0))
-                    .optional()
+                stmt.query_one((entry, tag), |row| {
+                    let value = row.get_ref(0)?;
+                    TagData::deserialize(value, &metadata)
+                        // This is really a `FromSql` thing, not `ToSql`, but this is the only available catch-all variant
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                })
+                .optional()
             })
     }
 
@@ -196,7 +216,7 @@ pub trait TagsDatabaseSqlExt {
     ///
     /// Potentially very destructive! Use with care.
     fn delete_tag(&mut self, tag: Tag) -> rusqlite::Result<()> {
-        self.get_tag_entry(&tag)
+        self.get_tag_entry(tag)
             .and_then(|entry| entry.map_or(Ok(()), |entry| self.delete_entry(entry)))
     }
 

@@ -729,6 +729,8 @@ macro_rules! fmt_vec {
 
 #[derive(Debug, Error)]
 pub enum TagDataError {
+    #[error("sql value was of an incorrect type")]
+    InvalidType,
     #[error("tag must have data to deserialize")]
     None,
     #[error("error while deserializing string data")]
@@ -753,45 +755,36 @@ pub enum TagDataError {
 
 impl TagData {
     /// Deserialize the raw tag data to a strongly-typed value, according to the provided type metadata
-    pub fn deserialize(buf: &[u8], metadata: &TagDataType) -> Result<Self, BytesIntoError<Self>> {
-        macro_rules! deserialize {
-            ($buf:ident, $variant:ident, $deser_err:ident $(, $validate:expr)?) => {
-                $buf.bytes_into()
-                    .map_err(|e| match e {
-                        BytesIntoError::ExpectedEof(rem, total) => BytesIntoError::ExpectedEof(rem, total),
-                        BytesIntoError::Deser(e) => BytesIntoError::Deser(TagDataError::$deser_err(e)),
-                    })
-                    $( .and_then(|data| $validate(data).map_err(|e| BytesIntoError::Deser(e))) )?
-                    .map(Self::$variant)
-            };
-        }
-
-        match metadata {
-            TagDataType::None => Err(BytesIntoError::Deser(TagDataError::None)),
-            TagDataType::String => deserialize!(buf, String, String),
-            TagDataType::Enum(variants) => {
-                deserialize!(buf, Enum, EnumDeser, |s| variants
-                    .contains(&s)
-                    .then_some(s)
-                    .ok_or_else(|| TagDataError::EnumVariant(s, variants.to_vec())))
-            }
-            TagDataType::Bool => deserialize!(buf, Bool, Bool),
-            TagDataType::Unsigned(range) => {
-                deserialize!(buf, Unsigned, NumericalDeser, |u| range
-                    .validate_range(u)
-                    .map_err(TagDataError::UnsignedRange))
-            }
-            TagDataType::Signed(range) => {
-                deserialize!(buf, Signed, NumericalDeser, |i| range
-                    .validate_range(i)
-                    .map_err(TagDataError::SignedRange))
-            }
-            TagDataType::Float(range) => {
-                deserialize!(buf, Float, NumericalDeser, |f| range
-                    .validate_range(f)
-                    .map_err(TagDataError::FloatRange))
-            }
-            TagDataType::Buffer => Ok(Self::Buffer(buf.into())),
+    pub fn deserialize(value: ValueRef<'_>, metadata: &TagDataType) -> Result<Self, TagDataError> {
+        match (value, metadata) {
+            (ValueRef::Null, TagDataType::None) => Err(TagDataError::None),
+            (ValueRef::Integer(i), TagDataType::Signed(range)) => range
+                .validate_range(i)
+                .map_err(TagDataError::SignedRange)
+                .map(Self::Signed),
+            (ValueRef::Integer(u), TagDataType::Unsigned(range)) => range
+                .validate_range(u.cast_unsigned())
+                .map_err(TagDataError::UnsignedRange)
+                .map(Self::Unsigned),
+            (ValueRef::Real(f), TagDataType::Float(range)) => range
+                .validate_range(f)
+                .map_err(TagDataError::FloatRange)
+                .map(Self::Float),
+            (ValueRef::Text(s), TagDataType::String) => str::from_utf8(s)
+                .map_err(TagDataError::String)
+                .map(str::to_owned)
+                .map(Self::String),
+            (ValueRef::Text(s), TagDataType::Enum(variants)) => str::from_utf8(s)
+                .map_err(TagDataError::EnumDeser)
+                .and_then(|s| {
+                    let s = s.into();
+                    variants
+                        .contains(&s)
+                        .then_some(Self::Enum(s))
+                        .ok_or_else(|| TagDataError::EnumVariant(s, variants.to_vec()))
+                }),
+            (ValueRef::Blob(b), TagDataType::Buffer) => Ok(Self::Buffer(b.into())),
+            _ => Err(TagDataError::InvalidType),
         }
     }
 }
