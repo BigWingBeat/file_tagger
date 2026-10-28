@@ -4,7 +4,10 @@ use anymore::AnyDebug;
 use miette::{IntoDiagnostic, Report};
 use rfd::FileHandle;
 
-use crate::{AppData, DatabaseState, Entry, Tag, tags_db::Transaction};
+use crate::{
+    AppData, DatabaseState, Entry, Tag,
+    tags_db::{TagNamesByPrefixIter, TagsDatabaseSqlExt, Transaction},
+};
 
 /// Generates wrapper types for data inside the enum because dealing with `{}`-style enum variants directly is annoying
 /// (Would enum variants as types makes this nicer?)
@@ -809,7 +812,7 @@ impl Edit {
             return;
         }
 
-        let id = self.database.generate_entry();
+        let id = set_err!(self, self.database.generate_entry().into_diagnostic());
         let name = std::mem::take(&mut self.tag_create_name_state);
         self.entries.push(EditEntry {
             id,
@@ -821,16 +824,39 @@ impl Edit {
 
     pub fn try_add_searched_tag_to_selected(&mut self) {
         let tag = self.tag_search_bar_state.as_str().into();
-        let tag_exists = set_err!(self, self.database.tag_exists(&tag).into_diagnostic());
+        let tag_exists = set_err!(self, self.database.tag_exists(tag).into_diagnostic());
         if tag_exists && self.add_tag_to_selected(&tag) {
             self.tag_search_bar_state.clear();
         }
     }
 
-    pub fn tag_prefix_search_results(&mut self) -> impl Iterator<Item = Tag> {
-        self.database
-            .search_tags_names_by_prefix(&self.tag_search_bar_state)
-            .map_while(|result| Some(set_err!(self, result.into_diagnostic(), None)))
+    pub fn tag_prefix_search_results(
+        &mut self,
+    ) -> rusqlite::Result<TagPrefixSearchResultsIter<'_>> {
+        let iter = self
+            .database
+            .search_tags_names_by_prefix(&self.tag_search_bar_state)?;
+        Ok(TagPrefixSearchResultsIter {
+            active_overlay: &mut self.active_overlay,
+            iter,
+        })
+    }
+}
+
+pub struct TagPrefixSearchResultsIter<'state> {
+    active_overlay: &'state mut ActiveOverlay,
+    iter: TagNamesByPrefixIter<'state>,
+}
+
+impl<'state> TagPrefixSearchResultsIter<'state> {
+    pub fn iter(&mut self) -> rusqlite::Result<impl Iterator<Item = Tag>> {
+        let iter = self.iter.iter()?.map_while(|result| {
+            result
+                .into_diagnostic()
+                .map_err(|e| *self.active_overlay = ActiveOverlay::Error(e))
+                .ok()
+        });
+        Ok(iter)
     }
 }
 

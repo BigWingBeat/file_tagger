@@ -92,9 +92,9 @@ pub trait TagsDatabaseSqlExt {
 
     fn prepare_cached(&self, sql: &str) -> rusqlite::Result<rusqlite::CachedStatement<'_>>;
 
-    fn savepoint_with_name<T: Into<String>>(
+    fn savepoint_with_name<S: Into<String>>(
         &mut self,
-        name: T,
+        name: S,
     ) -> rusqlite::Result<rusqlite::Savepoint<'_>>;
 
     fn initialize_sqlite_schema(&mut self) -> rusqlite::Result<()> {
@@ -241,23 +241,6 @@ pub trait TagsDatabaseSqlExt {
     }
 }
 
-impl TagsDatabaseSqlExt for rusqlite::Connection {
-    fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
-        Self::execute_batch(self, sql)
-    }
-
-    fn prepare_cached(&self, sql: &str) -> rusqlite::Result<rusqlite::CachedStatement<'_>> {
-        Self::prepare_cached(self, sql)
-    }
-
-    fn savepoint_with_name<T: Into<String>>(
-        &mut self,
-        name: T,
-    ) -> rusqlite::Result<rusqlite::Savepoint<'_>> {
-        Self::savepoint_with_name(self, name)
-    }
-}
-
 pub struct TagNamesByPrefixIter<'conn> {
     stmt: CachedStatement<'conn>,
     parameter: String,
@@ -267,5 +250,39 @@ impl<'conn> TagNamesByPrefixIter<'conn> {
     pub fn iter(&mut self) -> rusqlite::Result<impl Iterator<Item = rusqlite::Result<Tag>>> {
         self.stmt
             .query_map([&self.parameter], |row| row.get::<_, Tag>(0))
+    }
+}
+
+impl TagsDatabaseSqlExt for rusqlite::Connection {
+    fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
+        Self::execute_batch(self, sql)
+    }
+
+    fn prepare_cached(&self, sql: &str) -> rusqlite::Result<rusqlite::CachedStatement<'_>> {
+        Self::prepare_cached(self, sql)
+    }
+
+    fn savepoint_with_name<S: Into<String>>(
+        &mut self,
+        name: S,
+    ) -> rusqlite::Result<rusqlite::Savepoint<'_>> {
+        Self::savepoint_with_name(self, name)
+    }
+}
+
+impl<T> TagsDatabaseSqlExt for DatabaseState<T> {
+    fn execute_batch(&self, sql: &str) -> rusqlite::Result<()> {
+        self.db.execute_batch(sql)
+    }
+
+    fn prepare_cached(&self, sql: &str) -> rusqlite::Result<rusqlite::CachedStatement<'_>> {
+        self.db.prepare_cached(sql)
+    }
+
+    fn savepoint_with_name<S: Into<String>>(
+        &mut self,
+        name: S,
+    ) -> rusqlite::Result<rusqlite::Savepoint<'_>> {
+        self.db.savepoint_with_name(name)
     }
 }
