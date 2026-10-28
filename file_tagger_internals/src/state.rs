@@ -288,33 +288,23 @@ where
 
 impl StateTransitionWith<SearchMenu, DatabaseState> for Launcher {
     fn transition(self, db: DatabaseState) -> SearchMenu {
-        SearchMenu::new(
-            self.persistent.clone(),
-            db,
-            self.dialog.clone(),
-            Default::default(),
-        )
+        SearchMenu::new(self.persistent, db, self.dialog, Default::default())
     }
 }
 
 // Identity transitions are valid
 impl StateTransitionWith<SearchMenu, DatabaseState> for SearchMenu {
     fn transition(self, db: DatabaseState) -> SearchMenu {
-        SearchMenu::new(
-            self.persistent.clone(),
-            db,
-            self.dialog.clone(),
-            Default::default(),
-        )
+        SearchMenu::new(self.persistent, db, self.dialog, Default::default())
     }
 }
 
 impl StateTransition<SearchResults> for SearchMenu {
     fn transition(self) -> SearchResults {
         SearchResults::new(
-            self.persistent.clone(),
-            self.database.clone(),
-            self.search.clone(),
+            self.persistent,
+            self.database,
+            self.search,
             Default::default(),
         )
     }
@@ -377,9 +367,9 @@ impl StateTransitionWith<SearchMenu, Rollback> for Edit {
 impl StateTransition<SearchResults> for SearchResults {
     fn transition(self) -> SearchResults {
         SearchResults::new(
-            self.persistent.clone(),
-            self.database.clone(),
-            self.search.clone(),
+            self.persistent,
+            self.database,
+            self.search,
             Default::default(),
         )
     }
