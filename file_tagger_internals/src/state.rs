@@ -1,10 +1,10 @@
-use std::{any::TypeId, collections::BTreeSet, path::PathBuf};
+use std::{any::TypeId, collections::BTreeSet, convert::Infallible, path::PathBuf};
 
 use anymore::AnyDebug;
 use miette::{IntoDiagnostic, Report};
 use rfd::FileHandle;
 
-use crate::{AppData, DatabaseState, Entry, Tag, tags_db::ActiveTransactionDatabaseState};
+use crate::{AppData, DatabaseState, Entry, Tag, tags_db::Transaction};
 
 /// Generates wrapper types for data inside the enum because dealing with `{}`-style enum variants directly is annoying
 /// (Would enum variants as types makes this nicer?)
@@ -212,7 +212,7 @@ app_state! {
     /// Edit tags of entries, and create new entries (tags) to use
     Edit {
         persistent: AppData,
-        pub database: ActiveTransactionDatabaseState,
+        pub database: DatabaseState<Transaction>,
         entries: Vec<EditEntry>,
         pub tag_search_bar_state: String,
         pub tag_create_name_state: String,
@@ -312,17 +312,23 @@ impl StateTransition<SearchResults> for SearchMenu {
 
 /// Fallible state transitions are possible with the `Dyn`-variants of the state transition traits
 impl DynStateTransition<Edit> for SearchMenu {
-    fn transition(self) -> ActiveView {
-        match self.database.initialize_transaction().into_diagnostic() {
+    fn transition(mut self) -> ActiveView {
+        match self.database.begin_transaction() {
             Ok(db) => Edit::new(
-                self.persistent.clone(),
+                self.persistent,
                 db,
                 Default::default(),
                 Default::default(),
                 Default::default(),
             )
             .into(),
-            Err(e) => UnrecoverableError::new_error(e).into(),
+            Err((db, e)) => {
+                // `self` is partially moved because `begin_transaction` consumes `database` by-value,
+                // but we can recover by assigning a value to `database` so it is no longer moved
+                self.database = db;
+                self.active_overlay = ActiveOverlay::Error(report(e));
+                self.into()
+            }
         }
     }
 }
@@ -332,19 +338,20 @@ impl DynStateTransition<Edit> for SearchMenu {
 /// distinguished at the type-system level.
 pub struct Commit;
 
-impl StateTransitionWith<SearchMenu, Commit> for Edit {
-    fn transition(self, _: Commit) -> SearchMenu {
-        let (db, result) = self.database.commit();
-        let mut state = SearchMenu::new(
-            self.persistent.clone(),
-            db,
-            Default::default(),
-            Default::default(),
-        );
-        if let Err(e) = result.into_diagnostic() {
-            state.active_overlay = ActiveOverlay::Error(e);
+impl DynStateTransitionWith<SearchMenu, Commit> for Edit {
+    fn transition(mut self, _: Commit) -> ActiveView {
+        match self.database.commit() {
+            Ok(db) => {
+                SearchMenu::new(self.persistent, db, Default::default(), Default::default()).into()
+            }
+            Err((db, e)) => {
+                // `self` is partially moved because `commit` consumes `database` by-value,
+                // but we can recover by assigning a value to `database` so it is no longer moved
+                self.database = db;
+                self.active_overlay = ActiveOverlay::Error(report(e));
+                self.into()
+            }
         }
-        state
     }
 }
 
@@ -353,14 +360,18 @@ impl StateTransitionWith<SearchMenu, Commit> for Edit {
 /// distinguished at the type-system level.
 pub struct Rollback;
 
-impl StateTransitionWith<SearchMenu, Rollback> for Edit {
-    fn transition(self, _: Rollback) -> SearchMenu {
-        SearchMenu::new(
-            self.persistent.clone(),
-            self.database.rollback(),
-            Default::default(),
-            Default::default(),
-        )
+impl DynStateTransitionWith<SearchMenu, Rollback> for Edit {
+    fn transition(mut self, _: Rollback) -> ActiveView {
+        match self.database.rollback() {
+            Ok(db) => {
+                SearchMenu::new(self.persistent, db, Default::default(), Default::default()).into()
+            }
+            Err((db, e)) => {
+                self.database = db;
+                self.active_overlay = ActiveOverlay::Error(report(e));
+                self.into()
+            }
+        }
     }
 }
 
@@ -376,17 +387,23 @@ impl StateTransition<SearchResults> for SearchResults {
 }
 
 impl DynStateTransition<Edit> for SearchResults {
-    fn transition(self) -> ActiveView {
-        match self.database.initialize_transaction().into_diagnostic() {
+    fn transition(mut self) -> ActiveView {
+        match self.database.begin_transaction() {
             Ok(db) => Edit::new(
-                self.persistent.clone(),
+                self.persistent,
                 db,
                 Default::default(),
                 Default::default(),
                 Default::default(),
             )
             .into(),
-            Err(e) => UnrecoverableError::new_error(e).into(),
+            Err((db, e)) => {
+                // `self` is partially moved because `begin_transaction` consumes `database` by-value,
+                // but we can recover by assigning a value to `database` so it is no longer moved
+                self.database = db;
+                self.active_overlay = ActiveOverlay::Error(report(e));
+                self.into()
+            }
         }
     }
 }
@@ -481,7 +498,10 @@ impl Launcher {
             self,
             self.persistent.push_recent_folder(folder).into_diagnostic()
         );
-        let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
+        let database = set_err!(
+            self,
+            DatabaseState::open_in_folder(folder.clone()).into_diagnostic()
+        );
         self.queue_next_state_with::<SearchMenu, _>(database);
     }
 }
@@ -549,7 +569,10 @@ impl SearchMenu {
             self,
             self.persistent.push_recent_folder(folder).into_diagnostic()
         );
-        let database = set_err!(self, DatabaseState::open_in_folder(folder.clone()));
+        let database = set_err!(
+            self,
+            DatabaseState::open_in_folder(folder.clone()).into_diagnostic()
+        );
         self.queue_next_state_with::<SearchMenu, _>(database);
     }
 }
@@ -809,4 +832,11 @@ impl Edit {
             .search_tags_names_by_prefix(&self.tag_search_bar_state)
             .map_while(|result| Some(set_err!(self, result.into_diagnostic(), None)))
     }
+}
+
+/// We have to do this weird thing because the only way to get a `Report` is through a `Result` via `into_diagnostic()`
+#[inline(always)]
+fn report<E: std::error::Error + Send + Sync + 'static>(e: E) -> Report {
+    let Err(e) = Err::<Infallible, E>(e).into_diagnostic();
+    e
 }
