@@ -767,7 +767,7 @@ impl Edit {
         }
     }
 
-    pub fn intersection_of_tags_of_selected_entries(&self) -> impl Iterator<Item = &Tag> {
+    pub fn intersection_of_tags_of_selected_entries(&self) -> impl Iterator<Item = Tag> {
         // The std `intersection` methods are only implemented for pairs of sets, but we have arbitrarily many
         self.entries
             .iter()
@@ -782,28 +782,29 @@ impl Edit {
                         .all(|tags| tags.contains(tag))
                 })
             })
+            .copied()
     }
 
     /// Returns if the tag was actually added to anything
-    pub fn add_tag_to_selected(&mut self, tag: &Tag) -> bool {
+    pub fn add_tag_to_selected(&mut self, tag: Tag) -> bool {
         let mut any = false;
         for tags in self
             .entries
             .iter_mut()
             .filter_map(EditEntry::selected_tags_mut)
         {
-            any |= tags.insert(tag.clone());
+            any |= tags.insert(tag);
         }
         any
     }
 
-    pub fn remove_tag_from_selected(&mut self, tag: &Tag) {
+    pub fn remove_tag_from_selected(&mut self, tag: Tag) {
         for tags in self
             .entries
             .iter_mut()
             .filter_map(EditEntry::selected_tags_mut)
         {
-            tags.remove(tag);
+            tags.remove(&tag);
         }
     }
 
@@ -825,7 +826,7 @@ impl Edit {
     pub fn try_add_searched_tag_to_selected(&mut self) {
         let tag = self.tag_search_bar_state.as_str().into();
         let tag_exists = set_err!(self, self.database.tag_exists(tag).into_diagnostic());
-        if tag_exists && self.add_tag_to_selected(&tag) {
+        if tag_exists && self.add_tag_to_selected(tag) {
             self.tag_search_bar_state.clear();
         }
     }
