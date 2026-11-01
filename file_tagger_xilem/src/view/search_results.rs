@@ -2,7 +2,7 @@ use file_tagger_internals::SearchResults;
 use xilem::{
     WidgetView,
     core::lens,
-    view::{FlexExt, GridParams, grid, grid_item, prose},
+    view::{FlexExt, GridParams, GridTrackSize, grid, grid_item, prose},
 };
 
 use crate::view::{
@@ -32,11 +32,11 @@ pub fn search_results(state: &mut SearchResults) -> impl WidgetView<SearchResult
             .map(|(i, entry)| {
                 grid_item(
                     prose(entry.name.clone()),
-                    GridParams::new((i % cols) as _, (i / cols) as _, 1, 1),
+                    GridParams::pos((i % cols) as _, (i / cols) as _),
                 )
             })
             .collect::<Vec<_>>(),
-        cols as _,
-        4,
     )
+    .columns(xilem::view::repeat_tracks(cols, GridTrackSize::FRACTION))
+    .rows(xilem::view::repeat_tracks(4, GridTrackSize::FRACTION))
 }
