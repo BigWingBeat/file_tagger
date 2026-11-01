@@ -831,33 +831,24 @@ impl Edit {
         }
     }
 
-    pub fn tag_prefix_search_results(
-        &mut self,
-    ) -> rusqlite::Result<TagPrefixSearchResultsIter<'_>> {
-        let iter = self
-            .database
-            .search_tags_names_by_prefix(&self.tag_search_bar_state)?;
-        Ok(TagPrefixSearchResultsIter {
-            active_overlay: &mut self.active_overlay,
-            iter,
-        })
-    }
-}
+    pub fn tag_prefix_search_results(&mut self) -> Vec<Tag> {
+        let mut iter = set_err!(
+            self,
+            self.database
+                .search_tags_names_by_prefix(&self.tag_search_bar_state)
+                .into_diagnostic(),
+            Vec::new(),
+        );
 
-pub struct TagPrefixSearchResultsIter<'state> {
-    active_overlay: &'state mut ActiveOverlay,
-    iter: TagNamesByPrefixIter<'state>,
-}
+        let iter = set_err!(self, iter.iter().into_diagnostic(), Vec::new());
 
-impl<'state> TagPrefixSearchResultsIter<'state> {
-    pub fn iter(&mut self) -> rusqlite::Result<impl Iterator<Item = Tag>> {
-        let iter = self.iter.iter()?.map_while(|result| {
+        iter.map_while(|result| {
             result
                 .into_diagnostic()
-                .map_err(|e| *self.active_overlay = ActiveOverlay::Error(e))
+                .map_err(|e| self.active_overlay = ActiveOverlay::Error(e))
                 .ok()
-        });
-        Ok(iter)
+        })
+        .collect()
     }
 }
 

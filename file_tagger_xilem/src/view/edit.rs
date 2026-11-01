@@ -126,12 +126,10 @@ fn tag_search_bar(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
     )
 }
 
-fn tag_item(tag: &Tag) -> impl WidgetView<Edit> + use<> {
-    // borrowck shit
-    let tag_clone = tag.clone();
+fn tag_item(tag: Tag) -> impl WidgetView<Edit> + use<> {
     flex_row((
         text_button("－", move |state: &mut Edit| {
-            state.remove_tag_from_selected(&tag_clone);
+            state.remove_tag_from_selected(tag);
         })
         .border_width(0.px()),
         prose(tag.as_str()),
@@ -139,14 +137,12 @@ fn tag_item(tag: &Tag) -> impl WidgetView<Edit> + use<> {
     .background(ZYNC_800)
 }
 
-fn tag_search_result(tag: &Tag) -> impl WidgetView<Edit> + use<> {
-    // borrowck shit
-    let tag_clone = tag.clone();
+fn tag_search_result(tag: Tag) -> impl WidgetView<Edit> + use<> {
     button(
         // TODO: Show number of entries the tag is already applied to?
         flex_row((prose("＋"), prose(tag.as_str()))),
         move |state: &mut Edit| {
-            if state.add_tag_to_selected(&tag_clone) {
+            if state.add_tag_to_selected(tag) {
                 state.tag_search_bar_state.clear();
             }
         },
@@ -178,7 +174,8 @@ fn tag_list(state: &mut Edit) -> impl WidgetView<Edit> + use<> {
                 flex_col(
                     state
                         .tag_prefix_search_results()
-                        .map(|tag| tag_search_result(&tag))
+                        .into_iter()
+                        .map(tag_search_result)
                         .collect::<Vec<_>>(),
                 )
                 .gap(4.px()),

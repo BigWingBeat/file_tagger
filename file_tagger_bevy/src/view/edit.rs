@@ -156,8 +156,7 @@ fn tag_search_bar(state: &mut Edit) -> impl Scene + use<> {
     }
 }
 
-fn tag_item(tag: &Tag) -> impl Scene {
-    let tag_clone = tag.clone();
+fn tag_item(tag: Tag) -> impl Scene {
     bsn! {
         Node
         BackgroundColor(ZINC_800)
@@ -165,22 +164,21 @@ fn tag_item(tag: &Tag) -> impl Scene {
             (
                 button(bsn!(label("－")))
                 Node { border: px(0) }
-                on(move |_: On<Activate>, mut state: LensState<Edit>| state.remove_tag_from_selected(&tag_clone))
+                on(move |_: On<Activate>, mut state: LensState<Edit>| state.remove_tag_from_selected(tag))
             ),
             label(tag.as_str())
         ]
     }
 }
 
-fn tag_search_result(tag: &Tag) -> impl Scene + use<> {
-    let tag_clone = tag.clone();
+fn tag_search_result(tag: Tag) -> impl Scene + use<> {
     bsn! {
         button(bsn_list! [
             label("＋"),
             label(tag.as_str().to_owned()),
         ])
         on(move |_: On<Activate>, mut state: LensState<Edit>| {
-            if state.add_tag_to_selected(&tag_clone) {
+            if state.add_tag_to_selected(tag) {
                 state.tag_search_bar_state.clear();
             }
         })
@@ -237,7 +235,8 @@ fn tag_list(state: &mut Edit) -> impl Scene + use<> {
                                 // This does a database lookup (probably expensive), so we use `Either` to avoid doing this unless we need to
                                 Box::new(state
                                     .tag_prefix_search_results()
-                                    .map(|tag| tag_search_result(&tag))
+                                    .into_iter()
+                                    .map(tag_search_result)
                                     .collect::<Vec<_>>())
                             };
                             tags
