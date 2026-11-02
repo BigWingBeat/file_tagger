@@ -58,7 +58,13 @@ impl AppData {
     }
 
     fn open_path(path: impl AsRef<Path>) -> miette::Result<Self> {
-        let bytes = std::fs::read(path).into_diagnostic()?;
+        let bytes = std::fs::read(path)
+            .or_else(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => Ok(Vec::new()),
+                _ => Err(e),
+            })
+            .into_diagnostic()?;
+
         let paths: SmallVec<[String; MAX_RECENTS]> = bytes.bytes_into().into_diagnostic()?;
         let recent_folders = Box::new(
             paths
