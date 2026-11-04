@@ -5,8 +5,6 @@ use std::{
 
 use rusqlite::{OpenFlags, PrepFlags, Statement};
 
-pub use rusqlite::Result;
-
 pub const PRAGMA_APPLICATION_ID: i32 = 0x25b9fbdb;
 pub const PRAGMA_USER_VERSION: i32 = match i32::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10)
 {
@@ -85,11 +83,6 @@ impl Connection {
 
         Ok(())
     }
-
-    pub fn prepare(&self, sql: &str) -> rusqlite::Result<Statement<'_>> {
-        // <https://sqlite.org/c3ref/c_prepare_dont_log.html>
-        self.prepare_with_flags(sql, PrepFlags::SQLITE_PREPARE_FROM_DDL)
-    }
 }
 
 impl Deref for Connection {
@@ -109,7 +102,7 @@ impl DerefMut for Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         // <https://sqlite.org/pragma.html#pragma_optimize>
-        self.0.execute_batch("PRAGMA optimize");
+        let _ = self.0.execute_batch("PRAGMA optimize");
     }
 }
 

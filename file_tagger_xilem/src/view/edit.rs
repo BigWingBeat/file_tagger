@@ -51,9 +51,11 @@ fn add_more_buttons(state: &Edit) -> impl FlexSequence<Edit> + use<> {
             Dimensions::width(Dim::Fixed(width)),
         ),
         // Open search menu to select existing entries
-        text_button("＋ Add From Search", |_| {}).dims(Dimensions::width(Dim::Fixed(width))),
+        text_button("＋ Add From Search", |state| state.add_from_search())
+            .dims(Dimensions::width(Dim::Fixed(width))),
         // Open file picker, prefill with appropriate tags from file metadata
-        text_button("＋ Import Files", |_| {}).dims(Dimensions::width(Dim::Fixed(width))),
+        text_button("＋ Import Files", |state| state.import_files_as_entries())
+            .dims(Dimensions::width(Dim::Fixed(width))),
     )
 }
 
@@ -61,8 +63,7 @@ fn entry_tiles(state: &Edit) -> impl FlexSequence<Edit> + use<> {
     state
         .entries()
         .iter()
-        .enumerate()
-        .map(|(index, entry)| {
+        .map(|entry| {
             tile(
                 button(
                     flex_col((
@@ -73,7 +74,7 @@ fn entry_tiles(state: &Edit) -> impl FlexSequence<Edit> + use<> {
                     ))
                     // .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center),
-                    move |state: &mut Edit| state.toggle_entry_selected(index),
+                    move |state: &mut Edit| state.toggle_entry_selected(entry),
                 )
                 .background_color(if entry.selected { ZYNC_700 } else { ZYNC_800 })
                 .dims(Dimensions::height(Dim::Stretch)),

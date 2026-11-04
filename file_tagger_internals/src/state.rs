@@ -6,7 +6,7 @@ use rfd::FileHandle;
 
 use crate::{
     AppData, DatabaseState, Entry, Tag,
-    tags_db::{TagNamesByPrefixIter, TagsDatabaseSqlExt, Transaction},
+    tags_db::{NoTransaction, TagsDatabaseSqlExt, Transaction},
 };
 
 /// Generates wrapper types for data inside the enum because dealing with `{}`-style enum variants directly is annoying
@@ -215,8 +215,7 @@ app_state! {
     /// Edit tags of entries, and create new entries (tags) to use
     Edit {
         persistent: AppData,
-        pub database: DatabaseState<Transaction>,
-        entries: Vec<EditEntry>,
+        database: EditDatabaseState,
         pub tag_search_bar_state: String,
         pub tag_create_name_state: String,
     },
@@ -317,14 +316,7 @@ impl StateTransition<SearchResults> for SearchMenu {
 impl DynStateTransition<Edit> for SearchMenu {
     fn transition(mut self) -> ActiveView {
         match self.database.begin_transaction() {
-            Ok(db) => Edit::new(
-                self.persistent,
-                db,
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            )
-            .into(),
+            Ok(db) => Edit::new(self.persistent, db, Default::default(), Default::default()).into(),
             Err((db, e)) => {
                 // `self` is partially moved because `begin_transaction` consumes `database` by-value,
                 // but we can recover by assigning a value to `database` so it is no longer moved
@@ -392,14 +384,7 @@ impl StateTransition<SearchResults> for SearchResults {
 impl DynStateTransition<Edit> for SearchResults {
     fn transition(mut self) -> ActiveView {
         match self.database.begin_transaction() {
-            Ok(db) => Edit::new(
-                self.persistent,
-                db,
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            )
-            .into(),
+            Ok(db) => Edit::new(self.persistent, db, Default::default(), Default::default()).into(),
             Err((db, e)) => {
                 // `self` is partially moved because `begin_transaction` consumes `database` by-value,
                 // but we can recover by assigning a value to `database` so it is no longer moved
@@ -458,24 +443,6 @@ impl ActiveView {
         } else {
             self.set_active_overlay(ActiveOverlay::None);
         }
-    }
-}
-
-pub struct EditEntry {
-    pub id: Entry,
-    pub name: String,
-    /// Why a `BTreeSet`? Because we need an ordered collection that also support set operations (i.e. `intersection`)
-    pub tags: BTreeSet<Tag>,
-    pub selected: bool,
-}
-
-impl EditEntry {
-    pub fn selected_tags(&self) -> Option<&BTreeSet<Tag>> {
-        self.selected.then_some(&self.tags)
-    }
-
-    pub fn selected_tags_mut(&mut self) -> Option<&mut BTreeSet<Tag>> {
-        self.selected.then_some(&mut self.tags)
     }
 }
 
@@ -734,6 +701,85 @@ impl SearchState for SearchResults {
     }
 }
 
+struct EditDatabaseState {
+    db: DatabaseState<Transaction>,
+}
+
+impl EditDatabaseState {
+    pub fn new(db: DatabaseState<Transaction>) -> rusqlite::Result<Self> {
+        // db.prepare_cached("CREATE TEMP TABLE edit_entries(entry INTEGER PRIMARY KEY REFERENCES entries ON DELETE CASCADE) STRICT")
+        db.prepare_cached("CREATE TEMP TABLE edit_entries(entry INTEGER PRIMARY KEY, selected INTEGER NOT NULL) STRICT")
+            .and_then(|mut stmt| stmt.execute(()))
+            .map(|_| Self { db })
+    }
+
+    fn finish(&self) -> rusqlite::Result<()> {
+        self.db
+            .prepare_cached("DROP TABLE edit_entries")
+            .and_then(|mut stmt| stmt.execute(()))
+            .map(|_| ())
+    }
+
+    pub fn commit(self) -> Result<DatabaseState<NoTransaction>, (Self, rusqlite::Error)> {
+        if let Err(e) = self.finish() {
+            Err((self, e))
+        } else {
+            self.db.commit().map_err(|(db, e)| (Self { db }, e))
+        }
+    }
+
+    pub fn rollback(self) -> Result<DatabaseState<NoTransaction>, (Self, rusqlite::Error)> {
+        if let Err(e) = self.finish() {
+            Err((self, e))
+        } else {
+            self.db.rollback().map_err(|(db, e)| (Self { db }, e))
+        }
+    }
+}
+
+impl TryFrom<DatabaseState<Transaction>> for EditDatabaseState {
+    type Error = rusqlite::Error;
+
+    fn try_from(db: DatabaseState<Transaction>) -> Result<Self, Self::Error> {
+        Self::new(db)
+    }
+}
+
+pub struct EditEntry {
+    pub id: Entry,
+    pub selected: bool,
+}
+
+// impl EditEntry {
+//     pub fn selected_tags(&self) -> Option<&BTreeSet<Tag>> {
+//         self.selected.then_some(&self.tags)
+//     }
+
+//     pub fn selected_tags_mut(&mut self) -> Option<&mut BTreeSet<Tag>> {
+//         self.selected.then_some(&mut self.tags)
+//     }
+// }
+
+macro_rules! collect_sql_query {
+    ($this:ident, $query:expr, $exec_fn:ident $(, $params:expr, $execute:expr)? $(,)*) => {{
+        let mut stmt = set_err!($this, $query.into_diagnostic(), Vec::new());
+
+        let mut iter = set_err!($this, stmt.$exec_fn($($params, $execute)?).into_diagnostic(), Vec::new());
+
+        set_err!(
+            $this,
+            iter.try_fold(Vec::new(), |mut rows, result| {
+                result.map(|row| {
+                    rows.push(row);
+                    rows
+                })
+            })
+            .into_diagnostic(),
+            Vec::new(),
+        )
+    }};
+}
+
 impl Edit {
     /// Commits the transaction.
     /// Queues the [`SearchMenu`] state.
@@ -747,42 +793,67 @@ impl Edit {
         self.queue_next_state_with::<SearchMenu, _>(Rollback);
     }
 
-    pub fn entries(&self) -> &[EditEntry] {
-        &self.entries
+    pub fn entries(&mut self) -> Vec<EditEntry> {
+        collect_sql_query!(
+            self,
+            self.database
+                .db
+                .prepare_cached("SELECT * FROM edit_entries"),
+            query_map,
+            (),
+            |row| {
+                let id = row.get::<_, Entry>(0)?;
+                let selected = row.get::<_, bool>(1)?;
+                Ok(EditEntry { id, selected })
+            },
+        )
     }
 
     pub fn clear_entries(&mut self) {
-        self.entries.clear();
+        set_err!(
+            self,
+            self.database
+                .db
+                .prepare_cached("DELETE FROM edit_entries")
+                .and_then(|mut stmt| stmt.execute(()))
+                .into_diagnostic()
+        );
     }
 
-    pub fn toggle_entry_selected(&mut self, index: usize) {
-        if let Some(entry) = self.entries.get_mut(index) {
-            entry.selected = !entry.selected;
-        }
+    pub fn toggle_entry_selected(&mut self, entry: &EditEntry) {
+        set_err!(
+            self,
+            self.database
+                .db
+                .prepare_cached("UPDATE edit_entries SET selected = NOT selected WHERE entry = ?")
+                .and_then(|mut stmt| stmt.execute([entry.id]))
+                .into_diagnostic()
+        );
     }
 
-    pub fn set_entry_name(&mut self, index: usize, name: String) {
-        if let Some(entry) = self.entries.get_mut(index) {
-            entry.name = name;
-        }
-    }
+    // pub fn set_entry_name(&mut self, index: usize, name: String) {
+    //     if let Some(entry) = self.entries.get_mut(index) {
+    //         entry.name = name;
+    //     }
+    // }
 
-    pub fn intersection_of_tags_of_selected_entries(&self) -> impl Iterator<Item = Tag> {
-        // The std `intersection` methods are only implemented for pairs of sets, but we have arbitrarily many
-        self.entries
-            .iter()
-            .filter_map(EditEntry::selected_tags)
-            .min_by_key(|tags| tags.len())
-            .into_iter()
-            .flat_map(|smallest| {
-                smallest.iter().filter(|tag| {
-                    self.entries
-                        .iter()
-                        .filter_map(EditEntry::selected_tags)
-                        .all(|tags| tags.contains(tag))
-                })
-            })
-            .copied()
+    pub fn intersection_of_tags_of_selected_entries(&mut self) -> Vec<Tag> {
+        collect_sql_query!(
+            self,
+            self.database.db.prepare_cached(
+                "WITH
+                    selected AS (SELECT entry FROM edit_entries WHERE selected),
+                    tags AS (SELECT entry, tag FROM tag_data WHERE entry IN selected)
+                SELECT tag FROM tags AS outer WHERE NOT EXISTS (
+                    SELECT * FROM selected AS inner WHERE NOT EXISTS (
+                        SELECT * FROM tags WHERE tag = outer.tag AND entry = inner.entry
+                    )
+                )"
+            ),
+            query_map,
+            (),
+            |row| row.get::<_, Tag>(0),
+        )
     }
 
     /// Returns if the tag was actually added to anything
@@ -832,23 +903,13 @@ impl Edit {
     }
 
     pub fn tag_prefix_search_results(&mut self) -> Vec<Tag> {
-        let mut iter = set_err!(
+        collect_sql_query!(
             self,
             self.database
-                .search_tags_names_by_prefix(&self.tag_search_bar_state)
-                .into_diagnostic(),
-            Vec::new(),
-        );
-
-        let iter = set_err!(self, iter.iter().into_diagnostic(), Vec::new());
-
-        iter.map_while(|result| {
-            result
-                .into_diagnostic()
-                .map_err(|e| self.active_overlay = ActiveOverlay::Error(e))
-                .ok()
-        })
-        .collect()
+                .db
+                .search_tags_names_by_prefix(&self.tag_search_bar_state),
+            iter
+        )
     }
 }
 

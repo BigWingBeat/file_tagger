@@ -17,8 +17,8 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::serde::{
-    AsBytes, BoolError, Bytes, BytesInto, BytesIntoError, FromBytes, LENGTH_PREFIX_BYTES,
-    Prefixable, Reader, SizeHint, SmallVecError, UnexpectedEof, Writer,
+    AsBytes, BoolError, Bytes, BytesInto, FromBytes, LENGTH_PREFIX_BYTES, Prefixable, Reader,
+    SizeHint, SmallVecError, UnexpectedEof, Writer,
 };
 
 /// Identifies a single entry in the database, which can have many associated tags.

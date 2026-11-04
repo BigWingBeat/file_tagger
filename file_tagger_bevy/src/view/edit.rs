@@ -68,8 +68,7 @@ fn entry_tiles(state: &Edit) -> impl SceneList + use<> {
     state
         .entries()
         .iter()
-        .enumerate()
-        .map(|(index, entry)| {
+        .map(| entry| {
             tile(bsn!(
                 button(bsn_list![
                     // SVG goes here (currently unsupported by Bevy)
@@ -87,7 +86,7 @@ fn entry_tiles(state: &Edit) -> impl SceneList + use<> {
                     // height: Val::Percent(100.0),
                 }
                 BackgroundColor({if entry.selected { ZINC_700 } else { ZINC_800 }})
-                on(move |_: On<Activate>, mut state: LensState<Edit>| state.toggle_entry_selected(index))
+                on(move |_: On<Activate>, mut state: LensState<Edit>| state.toggle_entry_selected(entry))
             ))
         })
         .collect::<Vec<_>>()
